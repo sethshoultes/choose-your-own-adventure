@@ -1,0 +1,1 @@
+export type Genre = 'Fantasy' | 'Sci-Fi' | 'Horror' | 'Mystery';
