@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { BookOpen, Rocket, Skull, Search, Plus } from 'lucide-react';
 import type { Genre, Character } from '../types';
-import { Menu } from './Menu';
 import { useNavigate } from '../hooks/useNavigate';
 import { LoadingIndicator } from './LoadingIndicator';
 
@@ -38,7 +37,6 @@ export function CharacterSelector({
 
   return (
     <div>
-      <Menu username={username} />
       <div className="max-w-4xl mx-auto p-6">
         <div className="flex justify-center mb-16">
           <button

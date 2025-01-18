@@ -113,10 +113,21 @@ export function CharacterCreation({ genre, onComplete }: Props) {
 
   const handleSubmit = async () => {
     try {
+      debugManager.log('Creating character', 'info', { character });
+      
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         throw new Error('No user found');
       }
+
+      // Create initial scene and choices
+      const initialScene = getInitialScene(genre);
+      const initialChoices = getInitialChoices(genre);
+      
+      debugManager.log('Initial scene prepared', 'info', { 
+        scene: initialScene,
+        choices: initialChoices 
+      });
 
       const { data, error } = await supabase
         .from('characters')
@@ -136,9 +147,28 @@ export function CharacterCreation({ genre, onComplete }: Props) {
         throw error;
       }
       
-      onComplete({ ...character, id: data.id });
+      const newCharacter = { ...character, id: data.id };
+      
+      // Initialize game state with proper scene
+      const initialGameState = {
+        currentScene: {
+          id: 'scene-1',
+          description: initialScene,
+          choices: initialChoices,
+        },
+        history: [],
+        gameOver: false
+      };
+
+      debugManager.log('Character created successfully', 'success', { 
+        character: newCharacter,
+        gameState: initialGameState 
+      });
+
+      onComplete(newCharacter, initialGameState);
     } catch (error) {
       console.error('Error creating character:', error);
+      debugManager.log('Error creating character', 'error', { error });
       alert(error.message || 'Failed to create character. Please try again.');
     }
   };

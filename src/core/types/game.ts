@@ -15,6 +15,11 @@ export interface GameState {
   currentScene: Scene;
   history: GameHistoryEntry[];
   gameOver: boolean;
+  checkpoint?: {
+    scene: Scene;
+    history: GameHistoryEntry[];
+    timestamp: string;
+  };
 }
 
 export interface GameHistoryEntry {

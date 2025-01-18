@@ -1,24 +1,29 @@
 import { supabase } from '../../../lib/supabase';
 import type { GameState, Character } from '../../types';
+import { debugManager } from '../../debug/DebugManager';
 
 export class GameStateService {
   async saveGameState(character: Character, gameState: GameState): Promise<void> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('No authenticated user');
+      if (!character.id) {
+        throw new Error('Character ID is required');
+      }
 
-      const { error } = await supabase
-        .from('game_sessions')
-        .upsert({
-          character_id: character.id,
-          current_scene: gameState.currentScene,
-          game_state: gameState,
-          updated_at: new Date().toISOString(),
+      // Use the safe upsert function
+      const { data, error } = await supabase
+        .rpc('safe_upsert_game_session', {
+          p_character_id: character.id,
+          p_current_scene: gameState.currentScene,
+          p_game_state: gameState
         });
 
       if (error) throw error;
+      debugManager.log('Game state saved', 'success', { 
+        characterId: character.id,
+        sessionId: data
+      });
     } catch (error) {
-      console.error('Error saving game state:', error);
+      debugManager.log('Error saving game state', 'error', { error });
       throw error;
     }
   }
@@ -29,16 +34,23 @@ export class GameStateService {
         .from('game_sessions')
         .select('game_state')
         .eq('character_id', characterId)
+        .eq('status', 'active')
         .maybeSingle();
 
       if (error) {
+        debugManager.log('Error loading game state', 'error', { error });
         throw error;
       }
 
-      return data?.game_state || null;
+      if (data?.game_state) {
+        debugManager.log('Game state loaded', 'success', { characterId });
+        return data.game_state as GameState;
+      }
+
+      return null;
     } catch (error) {
-      console.error('Error loading game state:', error);
-      return null; // Return null instead of throwing to handle gracefully
+      debugManager.log('Error loading game state', 'error', { error });
+      return null;
     }
   }
 
@@ -57,8 +69,9 @@ export class GameStateService {
         });
 
       if (error) throw error;
+      this.debug.log('Game history saved', 'success', { sessionId });
     } catch (error) {
-      console.error('Error saving game history:', error);
+      this.debug.log('Error saving game history', 'error', { error });
       throw error;
     }
   }
@@ -78,7 +91,7 @@ export class GameStateService {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      console.error('Error loading game history:', error);
+      this.debug.log('Error loading game history', 'error', { error });
       throw error;
     }
   }

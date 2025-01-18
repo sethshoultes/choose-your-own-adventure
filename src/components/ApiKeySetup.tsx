@@ -23,25 +23,29 @@ export function ApiKeySetup({ onComplete }: Props) {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No authenticated user');
 
-      const { data, error } = await supabase.rpc('upsert_api_credentials', {
-        p_user_id: user.id,
-        p_openai_key: apiKey,
-        p_metadata: {
-          preferredModel: 'gpt-4-turbo-preview',
-          lastUpdated: new Date().toISOString()
-        }
-      });
+      const metadata = {
+        preferredModel: 'gpt-4-turbo-preview',
+        lastUpdated: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .rpc('upsert_api_credentials', { 
+          p_user_id: user.id, 
+          p_openai_key: apiKey, 
+          p_metadata: metadata 
+        });
 
       if (error) {
         throw error;
       }
 
-      // Show success message based on operation
-      setSuccess(data.status === 'created' ? 'API key saved successfully' : 'API key updated successfully');
+      setSuccess(data?.status === 'created' ? 'API key saved successfully' : 'API key updated successfully');
       onComplete();
     } catch (err) {
       console.error('Error saving API key:', err);
-      setError(err instanceof Error ? err.message : 'Failed to save API key');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save API key';
+      setError(errorMessage.includes('Failed to fetch') ? 
+        'Connection error. Please try again.' : errorMessage);
     } finally {
       setLoading(false);
     }

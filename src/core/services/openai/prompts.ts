@@ -3,14 +3,17 @@ import type { StoryPrompt } from './types';
 export function generateSystemPrompt(genre: string): string {
   const basePrompt = `You are a creative and engaging storyteller specializing in ${genre} narratives. 
 Your task is to continue the story based on the player's choices, maintaining consistency with the genre, 
-character attributes, and previous events. Each response should include a vivid scene description and 3 meaningful choices.
+character attributes, and previous events. Each response should be formatted as JSON with a scene description and 3 meaningful choices.
 
 Guidelines:
 - Keep descriptions vivid but concise (150-200 words)
 - Maintain consistent tone and style
 - Reference character attributes and equipment when relevant
-- Create meaningful choices that impact the story
-- Ensure choices are distinct and interesting
+- Create choices that:
+  - Are meaningful and impactful
+  - Consider character attributes
+  - Are distinct from each other
+  - Lead to different narrative paths
 - Avoid repetitive scenarios
 - Keep track of story continuity`;
 
@@ -59,9 +62,13 @@ Mystery-specific guidelines:
 export function generateUserPrompt({ context, choice }: StoryPrompt): string {
   const { character, currentScene, history } = context;
 
-  let prompt = `Character: ${character.name}
-Attributes: ${character.attributes.map(a => `${a.name}: ${a.value}`).join(', ')}
-Equipment: ${character.equipment.map(e => e.name).join(', ')}
+  let prompt = `Character Information:
+Name: ${character.name}
+Attributes:
+${character.attributes.map(a => `  * ${a.name} (${a.value}): ${a.description}`).join('\n')}
+Equipment:
+${character.equipment.map(e => `  * ${e.name}: ${e.description}`).join('\n')}
+${character.backstory ? `Backstory: ${character.backstory}` : ''}
 
 Current Scene:
 ${currentScene}
@@ -69,20 +76,37 @@ ${currentScene}
 Player Choice:
 ${choice}
 
-Continue the story and provide 3 new choices. Format your response as JSON:
+Continue the story based on the player's choice and character attributes. Your response MUST be valid JSON in this exact format:
+
 {
-  "description": "Scene description here...",
+  "description": "A vivid description of what happens next...",
   "choices": [
-    {"id": 1, "text": "First choice"},
-    {"id": 2, "text": "Second choice"},
-    {"id": 3, "text": "Third choice"}
+    {
+      "id": 1,
+      "text": "First meaningful choice based on the situation"
+    },
+    {
+      "id": 2,
+      "text": "Second distinct choice with different approach"
+    },
+    {
+      "id": 3,
+      "text": "Third alternative choice for variety"
+    }
   ]
-}`;
+}
+
+Guidelines:
+- Description should be 150-200 words
+- Each choice must be distinct and meaningful
+- Choices should consider character attributes
+- Maintain consistent tone and genre
+- Reference previous choices for continuity`;
 
   if (history.length > 0) {
-    prompt = `${prompt}\n\nPrevious choices:\n${history
-      .map(h => `- ${h.choice}`)
-      .join('\n')}`;
+    prompt = `${prompt}\n\nStory History:\n${history
+      .map(h => `- Scene: ${h.sceneDescription}\n  Choice: ${h.choice}`)
+      .join('\n\n')}`;
   }
 
   return prompt;

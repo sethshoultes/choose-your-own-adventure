@@ -68,7 +68,7 @@ function App() {
     };
   }, []);
 
-  const handleNavigate = (page: 'home' | 'characters') => {
+  const handleNavigate = (page: 'home' | 'characters' | 'profile' | 'test') => {
     if (page === 'home') {
       setGenre(null);
       setCharacter(null);
@@ -108,32 +108,54 @@ function App() {
   const checkApiKey = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .from('api_credentials')
-        .select('openai_key')
-        .eq('user_id', userId)
+        .rpc('get_api_credentials', { p_user_id: userId })
         .maybeSingle();
     
-      if (error && error.code !== 'PGRST116') {
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // No API key found
+          setApiKeySet(false);
+          return false;
+        }
         console.error('Error checking API key:', error);
+        return false;
       }
       
       setApiKeySet(!!data?.openai_key);
+      return !!data?.openai_key;
     } catch (err) {
       console.error('Error checking API key:', err);
       setApiKeySet(false);
+      return false;
     }
   };
 
   const fetchUsername = async (userId: string) => {
     try {
       const { data, error } = await supabase
-        .rpc('get_profile', { user_id: userId })
+        .rpc('get_or_create_profile', { p_user_id: userId })
         .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          // Profile not found, retry once
+          const { data: retryData, error: retryError } = await supabase
+            .rpc('get_or_create_profile', { p_user_id: userId })
+            .maybeSingle();
+            
+          if (retryError) throw retryError;
+          setUsername(retryData?.username || null);
+          return;
+        }
+        console.error('Error fetching profile:', error);
+        return;
+      }
+
       setUsername(data?.username || null);
     } catch (err) {
       console.error('Error in fetchUsername:', err);
+      // Set a fallback username
+      setUsername(`user-${userId.slice(0, 8)}`);
     }
   };
 
@@ -159,42 +181,31 @@ function App() {
     }
   };
 
-  const handleCharacterCreation = (newCharacter) => {
+  const handleCharacterCreation = (newCharacter, initialGameState) => {
     setCharacter(newCharacter);
-    setGameState({
-      currentScene: {
-        id: 'scene-1',
-        description: getInitialScene(genre!),
-        choices: getInitialChoices(genre!),
-      },
-      history: [],
-      gameOver: false,
+    setGameState(initialGameState);
+    debugManager.log('Character and game state initialized', 'success', { 
+      character: newCharacter, 
+      gameState: initialGameState 
     });
   };
 
   const handleCharacterSelect = (selectedCharacter: Character) => {
     setCharacter(selectedCharacter);
     gameEngine.initializeGame(selectedCharacter.genre, selectedCharacter);
+    setGameState(gameEngine.getCurrentState());
     
     // Try to load saved game state
     gameEngine.loadSavedState(selectedCharacter.id!).then(loaded => {
-      // Game state will be initialized by the engine
-      setGameState(gameEngine.getCurrentState());
+      if (loaded) {
+        setGameState(gameEngine.getCurrentState());
+      }
     });
   };
 
   const handleChoice = async (choiceId: number) => {
     try {
       await gameEngine.handleChoice(choiceId, {
-        onToken: (token) => {
-          setGameState(prev => ({
-            ...prev,
-            currentScene: {
-              ...prev.currentScene,
-              description: prev.currentScene.description + token
-            }
-          }));
-        },
         onComplete: () => {
           // Update the UI with the latest game state
           setGameState(gameEngine.getCurrentState());
@@ -292,7 +303,17 @@ function App() {
                 <ArrowLeft className="w-5 h-5" />
                 Back to Character Creation
               </button>
-              <StoryScene scene={gameState.currentScene} onChoice={handleChoice} />
+              <StoryScene 
+                scene={gameState.currentScene} 
+                onChoice={handleChoice}
+                history={gameState.history}
+                onCreateCheckpoint={() => gameEngine.createCheckpoint()}
+                onRestoreCheckpoint={() => {
+                  gameEngine.restoreCheckpoint();
+                  setGameState(gameEngine.getCurrentState());
+                }}
+                hasCheckpoint={!!gameState.checkpoint}
+              />
             </>
           )}
           <Footer username={username} />

@@ -2,6 +2,7 @@ import { supabase } from '../../../lib/supabase';
 import { defaultConfig, RATE_LIMIT, TIMEOUT_MS } from './config';
 import { AVAILABLE_MODELS } from './models';
 import { generateSystemPrompt, generateUserPrompt } from './prompts';
+import { debugManager } from '../../debug/DebugManager';
 import type { 
   OpenAIConfig, 
   OpenAIStreamCallbacks, 
@@ -15,7 +16,48 @@ export class OpenAIService {
   private requestTimes: number[] = [];
   private maxRetries = 3;
   private retryDelay = 1000;
-  private streamBuffer = '';
+  private currentResponse = {
+    buffer: '',
+    parsed: null as OpenAIResponse | null,
+    choices: [] as Array<{ id: number; text: string; }>,
+    isComplete: false
+  };
+
+  private cleanResponse(response: string): string {
+    try {
+      // Try to parse complete JSON first
+      const parsed = JSON.parse(response.trim());
+      if (parsed.description) {
+        return parsed.description.trim();
+      }
+    } catch {
+      // If not valid JSON, clean up the response
+      const cleanedResponse = response
+        // Remove complete JSON objects
+        .replace(/^\s*{[\s\S]*}\s*$/gm, '')
+        // Remove requirements objects
+        .replace(/"requirements":\s*{[^}]*}/g, '')
+        // Remove choices arrays
+        .replace(/"choices":\s*\[[^\]]*\]/g, '')
+        // Remove JSON punctuation
+        .replace(/[{}\[\]"]/g, '')
+        // Remove field names
+        .replace(/^\s*(description|text|id):\s*/gm, '')
+        // Remove trailing commas
+        .replace(/,\s*$/gm, '')
+        // Split into lines
+        .split('\n')
+        // Remove empty lines and trim each line
+        .map(line => line.trim())
+        .filter(Boolean)
+        // Join with newlines
+        .join('\n')
+        .trim();
+
+      return cleanedResponse;
+    }
+    return response.trim();
+  }
 
   private async delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -38,43 +80,36 @@ export class OpenAIService {
   }
 
   private isRetryableError(error: any): boolean {
-    // Retry on rate limits, timeouts, and temporary server errors
     if (error instanceof StreamError) {
-      return error.status === 429 || // Rate limit
-             error.status === 503 || // Service unavailable
-             error.status === 504;   // Gateway timeout
+      const retryableStatuses = [
+        429, // Rate limit
+        500, // Internal server error
+        502, // Bad gateway
+        503, // Service unavailable
+        504  // Gateway timeout
+      ];
+      return retryableStatuses.includes(error.status);
     }
     return false;
-  }
-
-  private parseStreamedContent(content: string): { text: string; isComplete: boolean } {
-    this.streamBuffer += content;
-    
-    try {
-      // Try to parse as JSON if we have a complete response
-      const parsed = JSON.parse(this.streamBuffer);
-      this.streamBuffer = '';
-      return {
-        text: parsed.description,
-        isComplete: true
-      };
-    } catch {
-      // If we can't parse as JSON, it's an incomplete response
-      return {
-        text: content,
-        isComplete: false
-      };
-    }
   }
 
   private async generateDynamicChoices(
     scene: string,
     context: StoryContext
-  ): Promise<Array<{ id: number; text: string }>> {
+  ): Promise<Choice[]> {
+    debugManager.log('Generating dynamic choices', 'info', { scene, context });
+
     const choicePrompt = `Based on the current scene and character attributes, generate 3 meaningful choices. Format as JSON array:
     Scene: ${scene}
     Character Attributes: ${context.character.attributes.map(a => `${a.name}: ${a.value}`).join(', ')}
-    Previous Choices: ${context.history.map(h => h.choice).join(', ')}`;
+    Previous Choices: ${context.history.map(h => h.choice).join(', ')}
+    
+    Guidelines:
+    - Each choice should be distinct and meaningful
+    - Consider character attributes and equipment
+    - Avoid repetitive or similar choices
+    - Make choices that could lead to different outcomes
+    - Keep choices consistent with the genre and tone`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -85,7 +120,7 @@ export class OpenAIService {
       body: JSON.stringify({
         model: this.config.model,
         messages: [{
-          role: 'user',
+          role: 'system',
           content: choicePrompt
         }],
         temperature: 0.7,
@@ -100,12 +135,10 @@ export class OpenAIService {
     const data = await response.json();
     try {
       const choices = JSON.parse(data.choices[0].message.content);
-      return choices.map((choice: string, index: number) => ({
-        id: index + 1,
-        text: choice
-      }));
+      debugManager.log('Generated choices', 'success', { choices });
+      return choices.map((choice: any, index: number) => ({ id: index + 1, text: choice.text }));
     } catch {
-      // Fallback choices if parsing fails
+      debugManager.log('Failed to parse choices, using fallback', 'warning');
       return [
         { id: 1, text: 'Investigate further' },
         { id: 2, text: 'Take action' },
@@ -141,7 +174,10 @@ export class OpenAIService {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Invalid API key');
+        throw new StreamError(
+          error.error?.message || 'Failed to generate choices',
+          response.status
+        );
       }
 
       return { valid: true };
@@ -208,14 +244,21 @@ export class OpenAIService {
     prompt: StoryPrompt,
     callbacks: OpenAIStreamCallbacks
   ): Promise<void> {
+    debugManager.log('Starting scene generation', 'info', { prompt });
+    
+    this.currentResponse = { 
+      buffer: '', 
+      parsed: null, 
+      choices: [],
+      isComplete: false 
+    };
     let abortController: AbortController | null = null;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
     try {
       this.checkRateLimit();
       const apiKey = await this.getApiKey();
-      let generatedText = '';
 
-      // Prepare messages for the API
       const messages = [
         {
           role: 'system' as const,
@@ -227,46 +270,43 @@ export class OpenAIService {
         },
       ];
 
-      const response = await this.retryWithExponentialBackoff(async () => {
-        abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController?.abort(), TIMEOUT_MS);
-
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
-          presence_penalty: this.config.presencePenalty,
-          frequency_penalty: this.config.frequencyPenalty,
-          stream: true,
-        }),
-          signal: abortController.signal,
-      });
-
-        clearTimeout(timeoutId);
-        return response;
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new StreamError(
-          error.error?.message || `OpenAI API error: ${response.statusText}`,
-          response.status
-        );
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) throw new Error('No response reader available');
+      abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController?.abort(), TIMEOUT_MS);
 
       try {
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: this.config.model,
+            messages,
+            temperature: this.config.temperature,
+            max_tokens: this.config.maxTokens,
+            presence_penalty: this.config.presencePenalty,
+            frequency_penalty: this.config.frequencyPenalty,
+            stream: true,
+          }),
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new StreamError(
+            error.error?.message || `OpenAI API error: ${response.statusText}`,
+            response.status
+          );
+        }
+
+        reader = response.body?.getReader() || null;
+        const decoder = new TextDecoder('utf-8');
+
+        if (!reader) {
+          throw new Error('No response reader available');
+        }
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -281,36 +321,77 @@ export class OpenAIService {
             try {
               const json = JSON.parse(line.replace('data: ', ''));
               if (!json.choices[0].delta.content) continue;
-              
               const token = json.choices[0].delta.content;
-              const { text, isComplete } = this.parseStreamedContent(token);
-              
-              if (text) {
-                callbacks.onToken(text);
-                generatedText += text;
-              }
-              
-              if (isComplete) {
-                const choices = await this.generateDynamicChoices(
-                  generatedText,
-                  prompt.context
-                );
-                callbacks.onComplete(choices);
-                break;
+              this.currentResponse.buffer += token;
+
+              // Try to parse the accumulated response
+              try {
+                const parsed = JSON.parse(this.currentResponse.buffer.trim());
+                if (parsed.description) {
+                  this.currentResponse.parsed = parsed;
+                  this.currentResponse.choices = parsed.choices || [];
+                  this.currentResponse.isComplete = true;
+                  callbacks.onResponse(this.cleanResponse(parsed.description));
+                  debugManager.log('Parsed complete response', 'success', { 
+                    description: parsed.description,
+                    choices: parsed.choices 
+                  });
+                }
+              } catch {
+                // If not valid JSON yet, continue buffering
+                callbacks.onResponse(token);
               }
             } catch (e) {
               console.error('Error parsing stream:', e);
             }
           }
         }
+
+        // Generate dynamic choices if none were parsed
+        let finalChoices = this.currentResponse.choices;
+        if (!this.currentResponse.isComplete || finalChoices.length === 0) {
+          debugManager.log('Generating fallback choices', 'warning');
+          finalChoices = [
+              { id: 1, text: 'Investigate further' },
+              { id: 2, text: 'Take action' },
+              { id: 3, text: 'Consider alternatives' }
+            ];
+        }
+
+        callbacks.onComplete(finalChoices);
+
+      } catch (error) {
+        throw error;
       } finally {
-        reader.releaseLock();
+        if (reader) {
+          reader.releaseLock();
+        }
       }
     } catch (error) {
       const streamError = this.handleStreamError(error);
+      debugManager.log('Stream error occurred', 'error', { error });
       callbacks.onError(streamError);
     } finally {
-      abortController?.abort();
+      if (abortController) {
+        abortController.abort();
+      }
+    }
+  }
+
+  private validateResponse(response: string): boolean {
+    try {
+      const parsed = JSON.parse(response);
+      return (
+        typeof parsed.description === 'string' &&
+        Array.isArray(parsed.choices) &&
+        parsed.choices.length === 3 &&
+        parsed.choices.every(c => 
+          typeof c.id === 'number' && 
+          typeof c.text === 'string'
+        )
+      );
+    } catch {
+      return false;
     }
   }
 }

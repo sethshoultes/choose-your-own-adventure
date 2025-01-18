@@ -2,6 +2,7 @@ import type { Genre, GameState, Scene, Character } from '../types';
 import { getInitialScene, getInitialChoices } from './sceneManager';
 import { OpenAIService } from '../services/openai';
 import { supabase } from '../../lib/supabase';
+import { debugManager } from '../debug/DebugManager';
 import { GameStateService } from '../services/game/GameStateService';
 
 export class GameEngine {
@@ -13,28 +14,58 @@ export class GameEngine {
   constructor() {
     this.openai = new OpenAIService();
     this.gameStateService = new GameStateService();
+    const initialScene = {
+      id: 'start',
+      description: 'Welcome to your adventure. Choose a genre to begin.',
+      choices: [],
+    };
+    
+    // Initialize with a proper empty state
     this.state = {
-      currentScene: {
-        id: 'start',
-        description: 'Welcome to your adventure. Choose a genre to begin.',
-        choices: [],
-      },
+      currentScene: initialScene,
       history: [],
       gameOver: false,
     };
+    
+    debugManager.log('Game engine initialized', 'info', { initialState: this.state });
   }
 
   public initializeGame(genre: Genre, character: Character): void {
     this.character = character;
+    
+    const sceneDescription = getInitialScene(genre);
+    const sceneChoices = getInitialChoices(genre);
+    
+    debugManager.log('Initializing game', 'info', {
+      genre,
+      character,
+      initialScene: sceneDescription,
+      choices: sceneChoices
+    });
+
     this.state = {
       currentScene: {
         id: 'scene-1',
-        description: getInitialScene(genre),
-        choices: getInitialChoices(genre),
+        description: sceneDescription,
+        choices: sceneChoices,
       },
       history: [],
       gameOver: false,
     };
+    
+    // Save initial state
+    if (character.id) {
+      this.gameStateService.saveGameState(character, this.state)
+        .catch((error) => {
+          debugManager.log('Failed to save initial state', 'error', { error });
+          console.error('Failed to save initial state:', error);
+        });
+    }
+
+    debugManager.log('Game initialized', 'success', { 
+      scene: this.state.currentScene,
+      state: this.state
+    });
   }
 
   public getCurrentState(): GameState {
@@ -43,22 +74,25 @@ export class GameEngine {
 
   public getCharacter(): Character | null {
     return this.character;
+    debugManager.log('Game initialized', 'info', { genre, character });
   }
 
   public async handleChoice(
     choiceId: number,
     callbacks: {
-      onToken: (token: string) => void;
+      onToken?: (token: string) => void;
       onComplete: () => void;
       onError: (error: Error) => void;
     }
   ): Promise<void> {
     if (!this.character) throw new Error('No character selected');
     if (!this.state.currentScene) throw new Error('No current scene');
+    debugManager.log('Processing choice', 'info', { choiceId, character: this.character.id });
 
     const currentChoice = this.state.currentScene.choices.find(c => c.id === choiceId);
     if (!currentChoice) {
       const error = new Error(`Invalid choice ID: ${choiceId}`);
+      debugManager.log('Invalid choice', 'error', { choiceId, availableChoices: this.state.currentScene.choices });
       callbacks.onError(error);
       return;
     }
@@ -72,12 +106,16 @@ export class GameEngine {
 
     this.state.history.push(historyEntry);
     let newSceneDescription = '';
+    let newChoices: Choice[] = [];
 
     try {
       // Save the current state before generating the next scene
       await this.gameStateService.saveGameState(this.character, this.state);
+      debugManager.log('Saved current state', 'info', { state: this.state });
       
       // Generate the next scene
+      debugManager.log('Generating next scene', 'info', { choice: currentChoice });
+      
       await this.openai.generateNextScene({
         context: {
           genre: this.character.genre,
@@ -88,33 +126,88 @@ export class GameEngine {
         choice: currentChoice.text,
       }, {
         onToken: (token) => {
-          newSceneDescription += token;
-          callbacks.onToken(token);
+          if (callbacks.onToken) {
+            callbacks.onToken(token);
+          }
         },
-        onComplete: async () => {
-          // Update the current scene with the generated text
+        onResponse: (response) => {
+          newSceneDescription = response;
+        },
+        onComplete: async (choices) => {
+          newChoices = choices;
           this.state.currentScene = {
             id: `scene-${this.state.history.length + 1}`,
-            description: newSceneDescription,
-            choices: [
-              { id: 1, text: 'Investigate further' },
-              { id: 2, text: 'Take action' },
-              { id: 3, text: 'Consider alternatives' }
-            ]
+            description: newSceneDescription.trim(),
+            choices: newChoices,
           };
 
           // Save the updated state after scene generation
           await this.gameStateService.saveGameState(this.character, this.state);
+          debugManager.log('Scene generated successfully', 'success', { 
+            scene: this.state.currentScene,
+            choices: this.state.currentScene.choices
+          });
           callbacks.onComplete();
         },
         onError: (error) => {
           console.error('Error generating scene:', error);
+          debugManager.log('Error generating scene', 'error', { error });
           callbacks.onError(new Error('Failed to generate the next scene. Please try again.'));
         },
       });
     } catch (error) {
       console.error('Error in handleChoice:', error);
+      debugManager.log('Error in handleChoice', 'error', { error });
       callbacks.onError(new Error('Failed to process your choice. Please try again.'));
+    }
+  }
+
+  public createCheckpoint(): void {
+    if (!this.state.currentScene) {
+      debugManager.log('Cannot create checkpoint: No current scene', 'error');
+      return;
+    }
+
+    this.state.checkpoint = {
+      scene: { ...this.state.currentScene },
+      history: [...this.state.history],
+      timestamp: new Date().toISOString()
+    };
+
+    debugManager.log('Checkpoint created', 'success', {
+      scene: this.state.currentScene.id,
+      historyLength: this.state.history.length
+    });
+
+    // Save state with checkpoint
+    if (this.character?.id) {
+      this.gameStateService.saveGameState(this.character, this.state)
+        .catch(error => {
+          debugManager.log('Failed to save checkpoint', 'error', { error });
+        });
+    }
+  }
+
+  public restoreCheckpoint(): void {
+    if (!this.state.checkpoint) {
+      debugManager.log('Cannot restore: No checkpoint exists', 'error');
+      return;
+    }
+
+    this.state.currentScene = { ...this.state.checkpoint.scene };
+    this.state.history = [...this.state.checkpoint.history];
+
+    debugManager.log('Checkpoint restored', 'success', {
+      scene: this.state.currentScene.id,
+      historyLength: this.state.history.length
+    });
+
+    // Save restored state
+    if (this.character?.id) {
+      this.gameStateService.saveGameState(this.character, this.state)
+        .catch(error => {
+          debugManager.log('Failed to save restored state', 'error', { error });
+        });
     }
   }
 
