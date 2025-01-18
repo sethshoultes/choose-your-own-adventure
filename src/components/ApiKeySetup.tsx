@@ -11,27 +11,36 @@ export function ApiKeySetup({ onComplete }: Props) {
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccess(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No authenticated user');
 
-      const { error } = await supabase
-        .from('api_credentials')
-        .upsert({
-          user_id: user.id,
-          openai_key: apiKey,
-          updated_at: new Date().toISOString(),
-        });
+      const { data, error } = await supabase.rpc('upsert_api_credentials', {
+        p_user_id: user.id,
+        p_openai_key: apiKey,
+        p_metadata: {
+          preferredModel: 'gpt-4-turbo-preview',
+          lastUpdated: new Date().toISOString()
+        }
+      });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
+
+      // Show success message based on operation
+      setSuccess(data.status === 'created' ? 'API key saved successfully' : 'API key updated successfully');
       onComplete();
     } catch (err) {
+      console.error('Error saving API key:', err);
       setError(err instanceof Error ? err.message : 'Failed to save API key');
     } finally {
       setLoading(false);
@@ -51,14 +60,14 @@ export function ApiKeySetup({ onComplete }: Props) {
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <p className="text-sm text-blue-700">
-          To get your API key:
-          <ol className="list-decimal ml-5 mt-2 space-y-1">
+        <div className="text-sm text-blue-700">
+          <p className="mb-2">To get your API key:</p>
+          <ol className="list-decimal ml-5 space-y-1">
             <li>Visit <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">OpenAI API Keys</a></li>
             <li>Create a new secret key</li>
             <li>Copy and paste it below</li>
           </ol>
-        </p>
+        </div>
       </div>
       
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -80,6 +89,13 @@ export function ApiKeySetup({ onComplete }: Props) {
           <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
             <p className="text-sm">{error}</p>
+          </div>
+        )}
+
+        {success && (
+          <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-lg">
+            <Check className="w-5 h-5 flex-shrink-0" />
+            <p className="text-sm">{success}</p>
           </div>
         )}
 

@@ -18,12 +18,39 @@ export interface OpenAIConfig {
   maxTokens: number;
   presencePenalty: number;
   frequencyPenalty: number;
+  metadata?: {
+    costPer1kTokens?: number;
+    recommended?: boolean;
+  };
+}
+
+export interface OpenAIModelConfig {
+  id: string;
+  name: string;
+  description: string;
+  maxTokens: number;
+  temperature: number;
+  presencePenalty: number;
+  frequencyPenalty: number;
+  costPer1kTokens: number;
+  recommended: boolean;
 }
 
 export interface OpenAIStreamCallbacks {
   onToken: (token: string) => void;
-  onComplete: () => void;
+  onComplete: (choices: Array<{ id: number; text: string }>) => void;
   onError: (error: Error) => void;
+}
+
+export class StreamError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string
+  ) {
+    super(message);
+    this.name = 'StreamError';
+  }
 }
 
 export interface OpenAIResponse {

@@ -10,3 +10,22 @@
 .animate-fade-out {
   animation: fadeOut 2s ease-out forwards;
 }
+
+@keyframes typing {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+
+.typing-animation {
+  position: relative;
+  padding-right: 1.2em;
+}
+
+.typing-animation::after {
+  content: '▋';
+  position: absolute;
+  right: 0;
+  animation: typing 1s infinite;
+  color: #6366f1;
+}

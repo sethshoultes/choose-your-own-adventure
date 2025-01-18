@@ -15,6 +15,7 @@ import { CharacterSelector } from './components/CharacterSelector';
 import { LoadingIndicator } from './components/LoadingIndicator';
 import { ApiKeySetup } from './components/ApiKeySetup';
 import { ProfileSettings } from './components/ProfileSettings';
+import { TestPanel } from './components/admin/TestPanel';
 import { GameEngine } from './core/engine/GameEngine';
 
 const initialScene: Scene = {
@@ -35,7 +36,7 @@ function App() {
   const [apiKeySet, setApiKeySet] = useState(false);
   const [character, setCharacter] = useState(null);
   const [username, setUsername] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState<'home' | 'characters' | 'profile'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'characters' | 'profile' | 'test'>('home');
   const [existingCharacters, setExistingCharacters] = useState<Character[]>([]);
   const [loadingCharacters, setLoadingCharacters] = useState(false);
   const [gameEngine] = useState(() => new GameEngine());
@@ -105,43 +106,31 @@ function App() {
   }, []);
 
   const checkApiKey = async (userId: string) => {
-    const { data } = await supabase
-      .from('api_credentials')
-      .select('openai_key')
-      .eq('user_id', userId)
-      .single();
+    try {
+      const { data, error } = await supabase
+        .from('api_credentials')
+        .select('openai_key')
+        .eq('user_id', userId)
+        .maybeSingle();
     
-    setApiKeySet(!!data?.openai_key);
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking API key:', error);
+      }
+      
+      setApiKeySet(!!data?.openai_key);
+    } catch (err) {
+      console.error('Error checking API key:', err);
+      setApiKeySet(false);
+    }
   };
 
   const fetchUsername = async (userId: string) => {
     try {
-      // First try to get the existing profile
-      let { data, error } = await supabase
-        .from('profiles')
-        .select('username')
-        .eq('id', userId)
-        .single();
+      const { data, error } = await supabase
+        .rpc('get_profile', { user_id: userId })
+        .maybeSingle();
 
-      if (error && error.code === 'PGRST116') {
-        // Profile doesn't exist, create it
-        const { data: userData } = await supabase.auth.getUser();
-        const email = userData.user?.email;
-        
-        const { data: newProfile, error: insertError } = await supabase
-          .from('profiles')
-          .insert([
-            { id: userId, username: email }
-          ])
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-        data = newProfile;
-      } else if (error) {
-        throw error;
-      }
-
+      if (error) throw error;
       setUsername(data?.username || null);
     } catch (err) {
       console.error('Error in fetchUsername:', err);
@@ -260,6 +249,8 @@ function App() {
             <CharacterList />
           ) : currentPage === 'profile' ? (
             <ProfileSettings />
+          ) : currentPage === 'test' ? (
+            <TestPanel />
           ) : !apiKeySet ? (
             <ApiKeySetup onComplete={() => setApiKeySet(true)} />
           ) : !genre ? (

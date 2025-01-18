@@ -145,6 +145,7 @@ export function CharacterCreation({ genre, onComplete }: Props) {
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-xl">
+      <div className="h-16" /> {/* Extra space at top */}
       <div className="flex justify-center mb-16">
         <button
           onClick={navigateToHome}

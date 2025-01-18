@@ -1,11 +1,12 @@
 import type { OpenAIConfig } from './types';
 
+import { AVAILABLE_MODELS } from './models';
+
+const DEFAULT_MODEL = 'gpt-4-turbo-preview';
+
 export const defaultConfig: OpenAIConfig = {
-  model: 'gpt-4',
-  temperature: 0.8,
-  maxTokens: 1000,
-  presencePenalty: 0.6,
-  frequencyPenalty: 0.3,
+  ...AVAILABLE_MODELS[DEFAULT_MODEL],
+  model: DEFAULT_MODEL,
 };
 
 export const RATE_LIMIT = {

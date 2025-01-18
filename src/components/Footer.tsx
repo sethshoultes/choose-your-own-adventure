@@ -12,7 +12,7 @@ export function Footer({ username }: Props) {
         <p className="text-sm text-gray-600">
           {username ? `Logged in as ${username}` : 'Adventure Game'}
         </p>
-        <p className="text-sm text-gray-500">© 2024 Adventure Game</p>
+        <p className="text-sm text-gray-500">© 2025 AdventureBuildr Text Adventure Games</p>
       </div>
     </footer>
   );

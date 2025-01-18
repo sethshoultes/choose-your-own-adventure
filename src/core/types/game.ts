@@ -20,5 +20,6 @@ export interface GameState {
 export interface GameHistoryEntry {
   sceneId: string;
   choice: string;
+  sceneDescription?: string;
   timestamp?: string;
 }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Menu as MenuIcon, X, Home, User, Users, LogOut, Settings } from 'lucide-react';
+import { Menu as MenuIcon, X, Home, User, Users, LogOut, Settings, Zap } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
+import { supabase } from '../lib/supabase';
 
 type Props = {
   username: string | null;
@@ -9,6 +10,28 @@ type Props = {
 
 export function Menu({ username, onNavigate }: Props) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  React.useEffect(() => {
+    checkAdminStatus();
+  }, []);
+
+  const checkAdminStatus = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      setIsAdmin(data?.role === 'admin');
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+    }
+  };
 
   const handleNavigation = (page: 'home' | 'characters' | 'profile') => {
     if (onNavigate) {
@@ -90,6 +113,17 @@ export function Menu({ username, onNavigate }: Props) {
                   Profile Settings
                 </button>
               </li>
+              {isAdmin && (
+                <li>
+                  <button
+                    onClick={() => handleNavigation('test')}
+                    className="flex items-center gap-3 px-4 py-2 text-gray-700 rounded-lg hover:bg-gray-100"
+                  >
+                    <Zap className="w-5 h-5" />
+                    Test Panel
+                  </button>
+                </li>
+              )}
             </ul>
           </nav>
 

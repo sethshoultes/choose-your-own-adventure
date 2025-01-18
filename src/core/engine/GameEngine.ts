@@ -54,17 +54,24 @@ export class GameEngine {
     }
   ): Promise<void> {
     if (!this.character) throw new Error('No character selected');
+    if (!this.state.currentScene) throw new Error('No current scene');
 
     const currentChoice = this.state.currentScene.choices.find(c => c.id === choiceId);
-    if (!currentChoice) throw new Error('Invalid choice');
+    if (!currentChoice) {
+      const error = new Error(`Invalid choice ID: ${choiceId}`);
+      callbacks.onError(error);
+      return;
+    }
 
     const historyEntry = {
       sceneId: this.state.currentScene.id,
       choice: currentChoice.text,
+      sceneDescription: this.state.currentScene.description,
       timestamp: new Date().toISOString(),
     };
 
     this.state.history.push(historyEntry);
+    let newSceneDescription = '';
 
     try {
       // Save the current state before generating the next scene
@@ -80,16 +87,34 @@ export class GameEngine {
         },
         choice: currentChoice.text,
       }, {
-        onToken: callbacks.onToken,
+        onToken: (token) => {
+          newSceneDescription += token;
+          callbacks.onToken(token);
+        },
         onComplete: async () => {
+          // Update the current scene with the generated text
+          this.state.currentScene = {
+            id: `scene-${this.state.history.length + 1}`,
+            description: newSceneDescription,
+            choices: [
+              { id: 1, text: 'Investigate further' },
+              { id: 2, text: 'Take action' },
+              { id: 3, text: 'Consider alternatives' }
+            ]
+          };
+
           // Save the updated state after scene generation
           await this.gameStateService.saveGameState(this.character, this.state);
           callbacks.onComplete();
         },
-        onError: callbacks.onError,
+        onError: (error) => {
+          console.error('Error generating scene:', error);
+          callbacks.onError(new Error('Failed to generate the next scene. Please try again.'));
+        },
       });
     } catch (error) {
-      callbacks.onError(error instanceof Error ? error : new Error('Unknown error'));
+      console.error('Error in handleChoice:', error);
+      callbacks.onError(new Error('Failed to process your choice. Please try again.'));
     }
   }
 

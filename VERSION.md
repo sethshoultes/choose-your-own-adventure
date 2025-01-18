@@ -1,6 +1,6 @@
 # AdventureBuildr Version History
 
-## Current Version: 1.0.0.3-alpha
+## Current Version: 1.0.0.4-alpha
 
 ### Version Format
 `major.minor.patch.dev-stage`
@@ -12,6 +12,12 @@
 - **stage**: Development stage (alpha, beta, rc, release)
 
 ### Version History
+
+#### 1.0.0.4-alpha (Current)
+- Fixed StoryScene component syntax
+- Improved character creation flow
+- Enhanced game state management
+- Prepared for OpenAI streaming improvements
 
 #### 1.0.0.3-alpha (Current)
 - Added profile management interface
@@ -41,8 +47,10 @@
 - UI components
 
 ### Upcoming Changes
-- OpenAI integration
-- Game state persistence
+- Improve OpenAI streaming responses
+- Add context-aware choice generation
+- Implement chat history view
+- Add save/load functionality
 - Character progression
 - Achievement system
 - Social features
