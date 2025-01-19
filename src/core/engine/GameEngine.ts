@@ -10,7 +10,8 @@ export class GameEngine {
   private character: Character | null = null;
   private openai: OpenAIService;
   private gameStateService: GameStateService;
-  private streamBuffer: string = '';
+  private autoSaveTimeout: NodeJS.Timeout | null = null;
+  private readonly AUTO_SAVE_DELAY = 5000; // 5 seconds
 
   constructor() {
     this.openai = new OpenAIService();
@@ -78,6 +79,23 @@ export class GameEngine {
     debugManager.log('Game initialized', 'info', { genre, character });
   }
 
+  private scheduleAutoSave() {
+    if (this.autoSaveTimeout) {
+      clearTimeout(this.autoSaveTimeout);
+    }
+
+    this.autoSaveTimeout = setTimeout(async () => {
+      try {
+        if (this.character?.id) {
+          await this.gameStateService.saveGameState(this.character, this.state);
+          debugManager.log('Auto-saved game state', 'success');
+        }
+      } catch (error) {
+        debugManager.log('Auto-save failed', 'error', { error });
+      }
+    }, this.AUTO_SAVE_DELAY);
+  }
+
   public async handleChoice(
     choiceId: number,
     callbacks: {
@@ -92,9 +110,7 @@ export class GameEngine {
 
     const currentChoice = this.state.currentScene.choices.find(c => c.id === choiceId);
     if (!currentChoice) {
-      const error = new Error(`Invalid choice ID: ${choiceId}`);
-      callbacks.onError(error);
-      return;
+      throw new Error(`Invalid choice ID: ${choiceId}`);
     }
 
     const historyEntry = {
@@ -109,6 +125,10 @@ export class GameEngine {
     try {
       // Save the current state before generating the next scene
       await this.gameStateService.saveGameState(this.character, this.state);
+      debugManager.log('Starting choice handling', 'info', { 
+        choiceId,
+        currentScene: this.state.currentScene.id
+      });
       
       await this.openai.generateNextScene({
         context: {
@@ -116,12 +136,17 @@ export class GameEngine {
           character: this.character,
           currentScene: this.state.currentScene.description,
           history: this.state.history,
+          history: this.state.history.slice(-5) // Only use last 5 entries for context
         },
         choice: currentChoice.text,
       }, {
         onToken: (token) => {
           responseBuffer += token;
           callbacks.onToken(token);
+          debugManager.log('Token received', 'info', { 
+            tokenLength: token.length,
+            bufferLength: responseBuffer.length
+          });
         },
         onComplete: async (choices) => {
           // Update the current scene with the generated text
@@ -132,20 +157,27 @@ export class GameEngine {
           };
 
           // Save the updated state after scene generation
-          await this.gameStateService.saveGameState(this.character, this.state);
-          responseBuffer = '';
-          callbacks.onComplete();
+          try {
+            await this.gameStateService.saveGameState(this.character, this.state);
+            debugManager.log('Game state saved after scene generation', 'success');
+            responseBuffer = '';
+            this.scheduleAutoSave(); // Schedule auto-save after state update
+            callbacks.onComplete();
+          } catch (error) {
+            debugManager.log('Error saving game state', 'error', { error });
+            throw error;
+          }
         },
         onError: (error) => {
-          console.error('Error generating scene:', error);
+          debugManager.log('Error in scene generation', 'error', { error });
           responseBuffer = '';
-          callbacks.onError(new Error('Failed to generate the next scene. Please try again.'));
+          throw error;
         },
       });
     } catch (error) {
-      console.error('Error in handleChoice:', error);
+      debugManager.log('Error in handleChoice', 'error', { error });
       responseBuffer = '';
-      callbacks.onError(new Error('Failed to process your choice. Please try again.'));
+      callbacks.onError(error instanceof Error ? error : new Error('An unknown error occurred'));
     }
   }
 

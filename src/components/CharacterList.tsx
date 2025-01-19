@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { BookOpen, Rocket, Skull, Search } from 'lucide-react';
 import type { Character } from '../types';
 import { useNavigate } from '../hooks/useNavigate';
-import { getInitialScene, getInitialChoices } from '../utils/gameUtils';
+import { getInitialScene, getInitialChoices } from '../core/engine/sceneManager';
 import { LoadingIndicator } from './LoadingIndicator';
 
 const getGenreIcon = (genre: string) => {

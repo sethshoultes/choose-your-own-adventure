@@ -3,7 +3,8 @@ import { supabase } from '../lib/supabase';
 import { Settings, Key, Mail, User, AlertCircle, Check, Zap } from 'lucide-react';
 import { LoadingIndicator } from './LoadingIndicator';
 import { useNavigate } from '../hooks/useNavigate';
-import { AVAILABLE_MODELS, OpenAIService } from '../core/services/openai'; 
+import { AVAILABLE_MODELS } from '../core/services/openai/models';
+import { OpenAIService } from '../core/services/openai/OpenAIService';
 
 export function ProfileSettings() {
   const { navigateToHome } = useNavigate();

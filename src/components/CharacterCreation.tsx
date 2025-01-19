@@ -3,10 +3,13 @@ import { supabase } from '../lib/supabase';
 import type { Genre, Character, CharacterAttribute, CharacterEquipment } from '../types';
 import { Shield, Sword, Wrench, Zap } from 'lucide-react';
 import { useNavigate } from '../hooks/useNavigate';
+import { getInitialScene, getInitialChoices } from '../core/engine/sceneManager';
+import { debugManager } from '../core/debug/DebugManager';
+import { LoadingIndicator } from './LoadingIndicator';
 
 type Props = {
   genre: Genre;
-  onComplete: (character: Character) => void;
+  onComplete: (character: Character, initialGameState: GameState) => void;
 };
 
 const getInitialAttributes = (genre: Genre): CharacterAttribute[] => {
@@ -89,6 +92,8 @@ const getEquipmentIcon = (type: CharacterEquipment['type']) => {
 export function CharacterCreation({ genre, onComplete }: Props) {
   const { navigateToHome } = useNavigate();
   const [step, setStep] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
   const [character, setCharacter] = useState<Character>({
     name: '',
     genre,
@@ -113,7 +118,8 @@ export function CharacterCreation({ genre, onComplete }: Props) {
 
   const handleSubmit = async () => {
     try {
-      debugManager.log('Creating character', 'info', { character });
+      setLoading(true);
+      setError(null);
       
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -144,6 +150,7 @@ export function CharacterCreation({ genre, onComplete }: Props) {
 
       if (error) {
         console.error('Error creating character:', error);
+        setError(error.message || 'Failed to create character');
         throw error;
       }
       
@@ -168,8 +175,11 @@ export function CharacterCreation({ genre, onComplete }: Props) {
       onComplete(newCharacter, initialGameState);
     } catch (error) {
       console.error('Error creating character:', error);
-      debugManager.log('Error creating character', 'error', { error });
-      alert(error.message || 'Failed to create character. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create character';
+      debugManager.log('Error creating character', 'error', { error: errorMessage });
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -312,11 +322,24 @@ export function CharacterCreation({ genre, onComplete }: Props) {
 
           <button
             onClick={handleSubmit}
-            disabled={!character.backstory}
+            disabled={!character.backstory || loading}
             className="w-full py-2 px-4 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
           >
-            Create Character
+            {loading ? (
+              <div className="flex items-center justify-center gap-2">
+                <LoadingIndicator size="sm" />
+                <span>Creating Character...</span>
+              </div>
+            ) : (
+              'Create Character'
+            )}
           </button>
+          
+          {error && (
+            <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -1,6 +1,6 @@
 # AdventureBuildr Version History
 
-## Current Version: 1.0.0.17-alpha
+## Current Version: 1.0.0.21-alpha
 
 ### Version Format
 `major.minor.patch.dev-stage`
@@ -13,7 +13,35 @@
 
 ### Version History
 
-#### 1.0.0.17-alpha (Current)
+#### 1.0.0.21-alpha (Current)
+- Enhanced error handling in OpenAI service
+- Improved stream error detection and classification
+- Added better network error handling
+- Enhanced response validation and parsing
+- Added comprehensive error logging
+
+#### 1.0.0.20-alpha 
+- Enhanced dynamic choice generation
+- Improved game state management
+- Added checkpoint system
+- Enhanced response parsing
+- Added debug logging
+
+#### 1.0.0.19-alpha 
+- Enhanced response parsing system
+- Improved streaming content display
+- Added debug logging for story generation
+- Fixed session uniqueness issues
+- Added proper error boundaries
+
+#### 1.0.0.18-alpha
+- Fixed character creation error handling
+- Improved game state management
+- Enhanced debug logging
+- Added proper error boundaries
+- Fixed session uniqueness issues
+
+#### 1.0.0.17-alpha 
 - Improved response formatting and readability
 - Enhanced paragraph spacing and line breaks
 - Fixed JSON parsing reliability

@@ -30,15 +30,19 @@ export function StoryScene({
   const handleChoice = async (choiceId: number) => {
     try {
       setIsLoading(true);
-      setError(null);
       setStreamedContent('');
+      setError(null);
       const currentChoice = scene.choices.find(c => c.id === choiceId);
       if (!currentChoice) throw new Error('Invalid choice');
       
       await onChoice(choiceId);
     } catch (error) {
-      console.error('Error handling choice:', error);
-      setError(error instanceof Error ? error.message : 'An error occurred');
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred';
+      setError(errorMessage);
+      setStreamedContent(''); // Clear any partial content
+      
+      // Show error in scene description
+      scene.description = `Error: ${errorMessage}\n\nPlease try again or choose a different option.`;
     } finally {
       setIsLoading(false);
     }
@@ -46,10 +50,10 @@ export function StoryScene({
 
   return (
     <div className="relative">
-      <div className="fixed top-4 right-4 z-10 flex items-center gap-2">
+      <div className="fixed left-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2 bg-white p-2 rounded-lg shadow-lg">
         <button
           onClick={() => setShowHistory(true)}
-          className="p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50 transition-colors"
+          className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
           title="View story history"
         >
           <History className="w-5 h-5 text-gray-600" />
@@ -57,7 +61,7 @@ export function StoryScene({
         {onCreateCheckpoint && (
           <button
             onClick={onCreateCheckpoint}
-            className="p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50 transition-colors"
+            className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
             title="Create checkpoint"
           >
             <Save className="w-5 h-5 text-gray-600" />
@@ -66,7 +70,7 @@ export function StoryScene({
         {hasCheckpoint && onRestoreCheckpoint && (
           <button
             onClick={onRestoreCheckpoint}
-            className="p-2 bg-white rounded-lg shadow-lg hover:bg-gray-50 transition-colors"
+            className="p-2 hover:bg-gray-50 rounded-lg transition-colors"
             title="Restore checkpoint"
           >
             <RotateCcw className="w-5 h-5 text-gray-600" />
