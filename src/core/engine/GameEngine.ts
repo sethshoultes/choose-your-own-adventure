@@ -2,6 +2,8 @@ import type { Genre, GameState, Scene, Character } from '../types';
 import { getInitialScene, getInitialChoices } from './sceneManager';
 import { OpenAIService } from '../services/openai';
 import { supabase } from '../../lib/supabase';
+import { ProgressionService } from '../services/progression/ProgressionService';
+import { AchievementService } from '../services/achievements/AchievementService';
 import { debugManager } from '../debug/DebugManager';
 import { GameStateService } from '../services/game/GameStateService';
 
@@ -9,6 +11,7 @@ export class GameEngine {
   private state: GameState;
   private character: Character | null = null;
   private openai: OpenAIService;
+  private progressionService: ProgressionService;
   private gameStateService: GameStateService;
   private autoSaveTimeout: NodeJS.Timeout | null = null;
   private readonly AUTO_SAVE_DELAY = 5000; // 5 seconds
@@ -16,6 +19,7 @@ export class GameEngine {
   constructor() {
     this.openai = new OpenAIService();
     this.gameStateService = new GameStateService();
+    this.progressionService = new ProgressionService();
     const initialScene = {
       id: 'start',
       description: 'Welcome to your adventure. Choose a genre to begin.',
@@ -78,6 +82,10 @@ export class GameEngine {
     return this.character;
     debugManager.log('Game initialized', 'info', { genre, character });
   }
+  
+  public updateCharacter(character: Character): void {
+    this.character = character;
+  }
 
   private scheduleAutoSave() {
     if (this.autoSaveTimeout) {
@@ -99,6 +107,12 @@ export class GameEngine {
   public async handleChoice(
     choiceId: number,
     callbacks: {
+      onXP?: (amount: number, source: string) => void;
+      onLevelUp: (result: LevelUpResult) => void;
+      onAchievementUnlocked?: (achievement: Achievement) => void;
+      onXP?: (amount: number, source: string) => void;
+      onLevelUp: (result: LevelUpResult) => void;
+      onAchievementUnlocked?: (achievement: Achievement) => void;
       onToken: (token: string) => void;
       onComplete: () => void;
       onError: (error: Error) => void;
@@ -117,63 +131,164 @@ export class GameEngine {
       sceneId: this.state.currentScene.id,
       choice: currentChoice.text,
       sceneDescription: this.state.currentScene.description,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString()
     };
 
     this.state.history.push(historyEntry);
 
     try {
-      // Save the current state before generating the next scene
-      await this.gameStateService.saveGameState(this.character, this.state);
-      debugManager.log('Starting choice handling', 'info', { 
-        choiceId,
-        currentScene: this.state.currentScene.id
-      });
-      
-      await this.openai.generateNextScene({
-        context: {
-          genre: this.character.genre,
-          character: this.character,
-          currentScene: this.state.currentScene.description,
-          history: this.state.history,
-          history: this.state.history.slice(-5) // Only use last 5 entries for context
-        },
-        choice: currentChoice.text,
-      }, {
-        onToken: (token) => {
-          responseBuffer += token;
-          callbacks.onToken(token);
-          debugManager.log('Token received', 'info', { 
-            tokenLength: token.length,
-            bufferLength: responseBuffer.length
-          });
-        },
-        onComplete: async (choices) => {
-          // Update the current scene with the generated text
-          this.state.currentScene = {
-            id: `scene-${this.state.history.length + 1}`,
-            description: responseBuffer,
-            choices: choices
-          };
+      // Update choice count in user_stats
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || !this.character) throw new Error('No user found');
 
-          // Save the updated state after scene generation
-          try {
-            await this.gameStateService.saveGameState(this.character, this.state);
-            debugManager.log('Game state saved after scene generation', 'success');
-            responseBuffer = '';
-            this.scheduleAutoSave(); // Schedule auto-save after state update
-            callbacks.onComplete();
-          } catch (error) {
-            debugManager.log('Error saving game state', 'error', { error });
-            throw error;
-          }
-        },
-        onError: (error) => {
-          debugManager.log('Error in scene generation', 'error', { error });
-          responseBuffer = '';
-          throw error;
-        },
+      // Get current stats first
+      const { data: currentStats } = await supabase
+        .from('user_stats')
+        .select('choices_made')
+        .eq('user_id', user.id)
+        .single();
+
+      const currentChoices = (currentStats?.choices_made || 0) + 1;
+
+      // Track choice in game history
+      const { error: historyError } = await supabase.rpc('track_game_history', {
+        p_session_id: this.state.sessionId,
+        p_scene_description: this.state.currentScene.description,
+        p_player_choice: currentChoice.text,
       });
+
+      if (historyError) {
+        debugManager.log('Error tracking game history', 'error', { error: historyError });
+      } else {
+        debugManager.log('Updated choice count', 'success', { choices: currentChoices });
+        
+        // Award XP for making a choice
+        const multiplier = this.progressionService.calculateChoiceMultiplier(
+          currentChoice.text,
+          this.state.history,
+          this.character
+        );
+        
+        const { levelUp, xpAwarded } = await this.progressionService.awardXP(
+          this.character,
+          'CHOICE_MADE',
+          { multiplier }
+        );
+
+        // Notify about XP gain
+        callbacks.onXP?.(xpAwarded, 'Choice made');
+
+        // Handle level up
+        if (levelUp) {
+          const levelUpResult = await this.progressionService.processLevelUp(this.character);
+          if (levelUpResult) {
+            debugManager.log('Character leveled up', 'success', { levelUpResult });
+            callbacks.onLevelUp(levelUpResult);
+            // Update character in state
+            this.character.level = levelUpResult.newLevel;
+            this.character.attribute_points = levelUpResult.attributePoints;
+          }
+        }
+      }
+
+      // Check for achievements after updating stats
+      await AchievementService.checkAchievements(this.character, {
+        choicesMade: currentChoices,
+        onAchievementUnlocked: callbacks.onAchievementUnlocked
+      });
+      // Update choice count in user_stats
+      await supabase.rpc('update_user_stats', {
+        p_user_id: this.character.user_id,
+        p_choices_made: this.state.history.length + 1
+      });
+
+      // Award XP for making a choice
+      if (this.character) {
+        const multiplier = ProgressionService.calculateChoiceMultiplier(
+          currentChoice.text,
+          this.state.history,
+          this.character
+        );
+        
+        const { levelUp, xpAwarded } = await ProgressionService.awardXP(
+          this.character,
+          'CHOICE_MADE',
+          { multiplier }
+        );
+
+        // Notify about XP gain
+        callbacks.onXP?.(xpAwarded, 'Choice made');
+
+        // Handle level up
+        if (levelUp) {
+          const levelUpResult = await ProgressionService.processLevelUp(this.character);
+          if (levelUpResult) {
+            debugManager.log('Character leveled up', 'success', { levelUpResult });
+            callbacks.onLevelUp(levelUpResult);
+            // Update character in state
+            this.character.level = levelUpResult.newLevel;
+            this.character.attribute_points = levelUpResult.attributePoints;
+          }
+        }
+
+        // Check for achievements
+        await AchievementService.checkAchievements(this.character, {
+          choicesMade: this.state.history.length + 1,
+          onAchievementUnlocked: callbacks.onAchievementUnlocked
+        });
+
+        // Save the current state before generating the next scene
+        await this.gameStateService.saveGameState(this.character, this.state);
+        debugManager.log('Starting choice handling', 'info', { 
+          choiceId,
+          currentScene: this.state.currentScene.id
+        });
+        
+        await this.openai.generateNextScene({
+          context: {
+            genre: this.character.genre,
+            character: this.character,
+            currentScene: this.state.currentScene.description,
+            history: this.state.history,
+            history: this.state.history.slice(-5) // Only use last 5 entries for context
+          },
+          choice: currentChoice.text,
+        }, {
+          onToken: (token) => {
+            responseBuffer += token;
+            callbacks.onToken(token);
+            debugManager.log('Token received', 'info', { 
+              tokenLength: token.length,
+              bufferLength: responseBuffer.length
+            });
+          },
+          onComplete: async (choices) => {
+            // Update the current scene with the generated text
+            this.state.currentScene = {
+              id: `scene-${this.state.history.length + 1}`,
+              description: responseBuffer,
+              choices: choices
+            };
+
+            // Save the updated state after scene generation
+            try {
+              await this.gameStateService.saveGameState(this.character, this.state);
+              debugManager.log('Game state saved after scene generation', 'success');
+              responseBuffer = '';
+              this.scheduleAutoSave(); // Schedule auto-save after state update
+              callbacks.onComplete();
+            } catch (error) {
+              debugManager.log('Error saving game state', 'error', { error });
+              throw error;
+            }
+          },
+          onError: (error) => {
+            debugManager.log('Error in scene generation', 'error', { error });
+            responseBuffer = '';
+            throw error;
+          },
+        });
+      }
     } catch (error) {
       debugManager.log('Error in handleChoice', 'error', { error });
       responseBuffer = '';

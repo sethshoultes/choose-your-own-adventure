@@ -14,10 +14,12 @@ import { Menu } from './components/Menu';
 import { CharacterSelector } from './components/CharacterSelector';
 import { LoadingIndicator } from './components/LoadingIndicator';
 import { ApiKeySetup } from './components/ApiKeySetup';
+import { Achievements } from './components/Achievements';
 import { ProfileSettings } from './components/ProfileSettings';
 import { TestPanel } from './components/admin/TestPanel';
 import { GameEngine } from './core/engine/GameEngine';
 import { getInitialScene, getInitialChoices } from './core/engine/sceneManager';
+import { AchievementsPage } from './components/achievements/AchievementsPage';
 
 const initialScene: Scene = {
   id: 'start',
@@ -37,10 +39,12 @@ function App() {
   const [apiKeySet, setApiKeySet] = useState(false);
   const [character, setCharacter] = useState(null);
   const [username, setUsername] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState<'home' | 'characters' | 'profile' | 'test'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'characters' | 'profile' | 'test' | 'achievements'>('home');
   const [existingCharacters, setExistingCharacters] = useState<Character[]>([]);
   const [loadingCharacters, setLoadingCharacters] = useState(false);
   const [gameEngine] = useState(() => new GameEngine());
+  const [levelUpResult, setLevelUpResult] = useState<LevelUpResult | null>(null);
+  const [xpNotification, setXPNotification] = useState<{xp: number; source: string} | null>(null);
 
   useEffect(() => {
     const handleNavigation = (event: CustomEvent) => {
@@ -203,6 +207,16 @@ function App() {
   const handleChoice = async (choiceId: number) => {
     try {
       await gameEngine.handleChoice(choiceId, {
+        onXP: (xp, source) => {
+          setXPNotification({ xp, source });
+        },
+        onAchievementUnlocked: (achievement) => {
+          // Show achievement notification
+          setAchievement(achievement);
+        },
+        onLevelUp: (result) => {
+          setLevelUpResult(result);
+        },
         onToken: (token) => {
           setGameState(prev => ({
             ...prev,
@@ -264,6 +278,8 @@ function App() {
           <Menu username={username} onNavigate={handleNavigate} />
           {currentPage === 'characters' ? (
             <CharacterList />
+          ) : currentPage === 'achievements' ? (
+            <AchievementsPage />
           ) : currentPage === 'profile' ? (
             <ProfileSettings />
           ) : currentPage === 'test' ? (
@@ -313,12 +329,19 @@ function App() {
                 scene={gameState.currentScene} 
                 onChoice={handleChoice}
                 history={gameState.history}
+                character={character}
+                onCharacterUpdate={(updatedCharacter) => {
+                  setCharacter(updatedCharacter);
+                  gameEngine.updateCharacter(updatedCharacter);
+                }}
                 onCreateCheckpoint={() => gameEngine.createCheckpoint()}
                 onRestoreCheckpoint={() => {
                   gameEngine.restoreCheckpoint();
                   setGameState(gameEngine.getCurrentState());
                 }}
                 hasCheckpoint={!!gameState.checkpoint}
+                xpNotification={xpNotification}
+                levelUpResult={levelUpResult}
               />
             </>
           )}

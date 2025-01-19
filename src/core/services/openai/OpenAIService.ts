@@ -221,23 +221,22 @@ Format response as JSON array:
     if (error instanceof StreamError) {
       return error;
     }
-
-    if (error.response) {
-      return new StreamError(
-        error.response.data?.error?.message || error.response.statusText,
-        error.response.status
-      );
-    }
-    
-    if (error.name === 'AbortError') {
-      return new StreamError('Request timed out', 408);
-    }
     
     // Handle network errors
     if (error.message?.includes('Failed to fetch')) {
       return new StreamError('Network error - please check your connection', 503);
     }
 
+    // Handle API errors
+    if (error.status) {
+      const message = error.message || 'OpenAI API error';
+      return new StreamError(message, error.status);
+    }
+    
+    if (error.name === 'AbortError') {
+      return new StreamError('Request timed out', 408);
+    }
+    
     return new StreamError(
       error.message || 'An unknown error occurred',
       500
@@ -397,8 +396,8 @@ Format response as JSON array:
       const response = await this.retryWithExponentialBackoff(async () => fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
           model: this.config.model,
@@ -417,22 +416,24 @@ Format response as JSON array:
           presence_penalty: this.config.presencePenalty,
           frequency_penalty: this.config.frequencyPenalty,
           stream: true,
+          stream: true
         }),
         signal: abortController.signal
-      }).catch(error => { throw this.handleStreamError(error); }));
+      }));
       
       if (!response.ok) {
         let errorMessage = 'OpenAI API error';
         try {
           const error = await response.json();
-          errorMessage = error.error?.message || `OpenAI API error: ${response.statusText}`;
+          errorMessage = error.error?.message || error.message || `OpenAI API error: ${response.statusText}`;
         } catch {
           errorMessage = `OpenAI API error: ${response.statusText}`;
         }
         const streamError = new StreamError(errorMessage, response.status);
         debugManager.log('API error response', 'error', { 
           status: response.status,
-          message: errorMessage
+          message: errorMessage,
+          error: streamError
         });
         throw streamError;
       }

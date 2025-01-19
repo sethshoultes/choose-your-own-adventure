@@ -1,31 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Scene, GameHistoryEntry } from '../types';
 import { LoadingIndicator } from './LoadingIndicator';
-import { Save, Send, RefreshCw, History, RotateCcw, Bot } from 'lucide-react';
+import { Save, Send, RefreshCw, History, RotateCcw, Bot, Trophy } from 'lucide-react';
 import { StoryView } from './StoryView';
-import { ChatHistory } from './ChatHistory';
+import { ChatHistory } from './ChatHistory'; 
+import { XPNotification } from './progression/XPNotification';
+import { ProgressBar } from './progression/ProgressBar';
+import { AchievementPopup } from './achievements/AchievementPopup';
+import { LevelUpModal } from './progression/LevelUpModal';
+import { AttributePointsModal } from './progression/AttributePointsModal';
+import type { LevelUpResult } from '../core/services/progression/ProgressionService';
+import type { Achievement } from '../core/services/achievements/types';
+import type { Character } from '../types';
 
 type Props = {
   scene: Scene;
   onChoice: (choiceId: number) => void;
   history: GameHistoryEntry[];
+  character: Character;
+  onCharacterUpdate: (character: Character) => void;
   onCreateCheckpoint?: () => void;
   onRestoreCheckpoint?: () => void;
   hasCheckpoint?: boolean;
+  levelUpResult?: LevelUpResult | null;
+  xpNotification?: { xp: number; source: string } | null;
 };
 
-export function StoryScene({ 
+export function StoryScene({
   scene, 
   onChoice, 
   history,
+  character,
+  onCharacterUpdate,
   onCreateCheckpoint,
   onRestoreCheckpoint,
-  hasCheckpoint
+  hasCheckpoint,
+  levelUpResult,
+  xpNotification
 }: Props) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [streamedContent, setStreamedContent] = useState('');
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [showAttributePoints, setShowAttributePoints] = useState(false);
+  const [achievement, setAchievement] = useState<Achievement | null>(null);
+  const [currentXPNotification, setXPNotification] = useState<{ xp: number; source: string } | null>(null);
+
+  useEffect(() => {
+    if (levelUpResult) {
+      setShowLevelUp(true);
+    }
+  }, [levelUpResult]);
+
+  useEffect(() => {
+    if (xpNotification) {
+      setXPNotification(xpNotification);
+      const timer = setTimeout(() => setXPNotification(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [xpNotification]);
 
   const handleChoice = async (choiceId: number) => {
     try {
@@ -50,6 +84,23 @@ export function StoryScene({
 
   return (
     <div className="relative">
+      <div className="fixed top-0 left-0 right-0 z-10 bg-white shadow-lg">
+        <div className="max-w-4xl mx-auto p-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Trophy className="w-5 h-5 text-indigo-600" />
+              <span className="font-medium">Level {character.level || 1}</span>
+            </div>
+            <div className="flex-1">
+              <ProgressBar
+                currentXP={character.experience_points || 0}
+                level={character.level || 1}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="fixed left-4 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2 bg-white p-2 rounded-lg shadow-lg">
         <button
           onClick={() => setShowHistory(true)}
@@ -85,7 +136,7 @@ export function StoryScene({
         visible={showHistory}
       />
 
-      <div className="max-w-4xl mx-auto p-6 pb-24">
+      <div className="max-w-4xl mx-auto p-6 pb-24 mt-20">
         <StoryView
           currentScene={scene.description}
           streamedContent={streamedContent}
@@ -123,6 +174,38 @@ export function StoryScene({
           </div>
         )}
       </div>
+      
+      <LevelUpModal
+        result={levelUpResult!}
+        visible={showLevelUp}
+        onClose={() => setShowLevelUp(false)}
+        onAttributePointsAssigned={() => {
+          setShowLevelUp(false);
+          setShowAttributePoints(true);
+        }}
+      />
+
+      <AttributePointsModal
+        character={character}
+        visible={showAttributePoints}
+        onClose={() => setShowAttributePoints(false)}
+        onSave={onCharacterUpdate}
+      />
+      
+      {achievement && (
+        <AchievementPopup
+          achievement={achievement}
+          onClose={() => setAchievement(null)} 
+        />
+      )}
+      
+      {currentXPNotification && (
+        <XPNotification
+          xp={currentXPNotification.xp}
+          source={currentXPNotification.source}
+          onComplete={() => setXPNotification(null)}
+        />
+      )}
     </div>
   );
 }

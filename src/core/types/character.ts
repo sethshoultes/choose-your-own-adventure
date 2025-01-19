@@ -19,4 +19,7 @@ export interface Character {
   attributes: CharacterAttribute[];
   equipment: CharacterEquipment[];
   backstory: string;
+  experience_points?: number;
+  level?: number;
+  attribute_points?: number;
 }

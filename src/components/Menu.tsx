@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Menu as MenuIcon, X, Home, User, Users, Settings, Bug, Zap } from 'lucide-react';
+import { Menu as MenuIcon, X, Home, User, Users, Settings, Bug, Zap, Trophy } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
 import { supabase } from '../lib/supabase';
 import { DebugPanel } from './debug/DebugPanel';
@@ -7,7 +7,7 @@ import { useDebugStore } from '../core/debug/DebugManager';
 
 type Props = {
   username: string | null;
-  onNavigate?: (page: 'home' | 'characters' | 'profile') => void;
+  onNavigate?: (page: 'home' | 'characters' | 'profile' | 'achievements') => void;
 };
 
 export function Menu({ username, onNavigate }: Props) {
@@ -33,6 +33,7 @@ export function Menu({ username, onNavigate }: Props) {
       setIsAdmin(data?.role === 'admin');
     } catch (error) {
       console.error('Error checking admin status:', error);
+      setIsAdmin(false);
     }
   };
 
@@ -106,22 +107,29 @@ export function Menu({ username, onNavigate }: Props) {
                   onClick: () => handleNavigation('characters')
                 },
                 {
+                  label: 'Achievements',
+                  icon: <Trophy className="w-5 h-5" />,
+                  onClick: () => handleNavigation('achievements')
+                },
+                {
                   label: 'Profile Settings',
                   icon: <Settings className="w-5 h-5" />,
                   onClick: () => handleNavigation('profile')
                 },
-               isAdmin && {
-                 label: 'Test Panel',
-                 icon: <Zap className="w-5 h-5" />,
-                 onClick: () => handleNavigation('test')
-               },
-                isAdmin && {
-                  label: 'Debug Console',
-                  icon: <Bug className="w-5 h-5" />,
-                  onClick: toggleDebug,
-                  active: debugEnabled,
-                  badge: debugEnabled ? 'Active' : undefined
-                }
+                ...(isAdmin ? [
+                  {
+                    label: 'Test Panel',
+                    icon: <Zap className="w-5 h-5" />,
+                    onClick: () => handleNavigation('test')
+                  },
+                  {
+                    label: 'Debug Console',
+                    icon: <Bug className="w-5 h-5" />,
+                    onClick: toggleDebug,
+                    active: debugEnabled,
+                    badge: debugEnabled ? 'Active' : undefined
+                  }
+                ] : [])
               ].filter(Boolean).map((item) => (
                 <li key={item.label}>
                   <button

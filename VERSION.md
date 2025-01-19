@@ -1,6 +1,6 @@
 # AdventureBuildr Version History
 
-## Current Version: 1.0.0.21-alpha
+## Current Version: 1.0.0.25-alpha
 
 ### Version Format
 `major.minor.patch.dev-stage`
@@ -12,6 +12,34 @@
 - **stage**: Development stage (alpha, beta, rc, release)
 
 ### Version History
+
+#### 1.0.0.25-alpha (Current)
+- Added social features foundation
+- Added user profiles and relationships
+- Added character sharing capabilities
+- Added story sharing system
+- Added leaderboards
+
+#### 1.0.0.24-alpha (Current)
+- Added Achievement System
+- Implemented achievement tracking and rewards
+- Added achievement notifications
+- Added achievement list view
+- Integrated with progression system
+
+#### 1.0.0.23-alpha (Current)
+- Added XP notifications system
+- Enhanced progression UI components
+- Added attribute point allocation
+- Improved level-up experience
+- Added progression state management
+
+#### 1.0.0.22-alpha (Current)
+- Added character progression system
+- Implemented XP and leveling mechanics
+- Added attribute points system
+- Added level-up rewards
+- Integrated progression with game engine
 
 #### 1.0.0.21-alpha (Current)
 - Enhanced error handling in OpenAI service
