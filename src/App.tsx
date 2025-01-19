@@ -206,6 +206,15 @@ function App() {
   const handleChoice = async (choiceId: number) => {
     try {
       await gameEngine.handleChoice(choiceId, {
+        onToken: (token) => {
+          setGameState(prev => ({
+            ...prev,
+            currentScene: {
+              ...prev.currentScene,
+              description: token
+            }
+          }));
+        },
         onComplete: () => {
           // Update the UI with the latest game state
           setGameState(gameEngine.getCurrentState());

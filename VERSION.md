@@ -1,6 +1,6 @@
 # AdventureBuildr Version History
 
-## Current Version: 1.0.0.16-alpha
+## Current Version: 1.0.0.17-alpha
 
 ### Version Format
 `major.minor.patch.dev-stage`
@@ -13,42 +13,49 @@
 
 ### Version History
 
-#### 1.0.0.16-alpha (Current)
+#### 1.0.0.17-alpha (Current)
+- Improved response formatting and readability
+- Enhanced paragraph spacing and line breaks
+- Fixed JSON parsing reliability
+- Added proper sentence formatting
+- Improved streaming content display
+
+#### 1.0.0.16-alpha 
 - Enhanced response parsing system
 - Improved JSON handling in story view
 - Fixed raw response display issues
 - Added comprehensive debug logging
 
-#### 1.0.0.15-alpha (Current)
+#### 1.0.0.15-alpha 
 - Fixed streaming content display
 - Improved response parsing
 - Enhanced state management
 - Removed unnecessary debug logging
 
-#### 1.0.0.14-alpha (Current)
+#### 1.0.0.14-alpha
 - Fixed raw response display in story view
 - Improved streaming content parsing
 - Enhanced content display logic
 - Added debug logging for content parsing
 
-#### 1.0.0.13-alpha (Current)
+#### 1.0.0.13-alpha 
 - Fixed streaming response parsing
 - Improved response buffering
 - Enhanced JSON parsing reliability
 - Fixed raw response display issue
 
-#### 1.0.0.12-alpha (Current)
+#### 1.0.0.12-alpha 
 - Fixed story streaming content parsing
 - Added improved typing animation
 - Enhanced streaming state management
 - Added debug logging for story generation
 
-#### 1.0.0.11-alpha (Current)
+#### 1.0.0.11-alpha 
 - Added chat-like story view interface
 - Enhanced story presentation
 - Improved visual feedback for story progression
 
-#### 1.0.0.10-alpha (Current)
+#### 1.0.0.10-alpha
 - Improved response view separation
 - Enhanced content parsing and display
 - Fixed content flashing issues
@@ -119,10 +126,7 @@
 - UI components
 
 ### Upcoming Changes
-- Dynamic choice generation based on context
+- Dynamic choice generation
 - Character progression system
 - Achievement system
 - Social features
-- Enhanced admin interface
-- Analytics and reporting
-- Performance optimizations

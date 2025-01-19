@@ -37,7 +37,7 @@ export interface OpenAIModelConfig {
 }
 
 export interface OpenAIStreamCallbacks {
-  onResponse: (response: string) => void;
+  onToken: (token: string) => void;
   onComplete: (choices: Array<{ id: number; text: string }>) => void;
   onError: (error: Error) => void;
 }

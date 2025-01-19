@@ -10,6 +10,7 @@ export class GameEngine {
   private character: Character | null = null;
   private openai: OpenAIService;
   private gameStateService: GameStateService;
+  private streamBuffer: string = '';
 
   constructor() {
     this.openai = new OpenAIService();
@@ -80,19 +81,18 @@ export class GameEngine {
   public async handleChoice(
     choiceId: number,
     callbacks: {
-      onToken?: (token: string) => void;
+      onToken: (token: string) => void;
       onComplete: () => void;
       onError: (error: Error) => void;
     }
   ): Promise<void> {
     if (!this.character) throw new Error('No character selected');
     if (!this.state.currentScene) throw new Error('No current scene');
-    debugManager.log('Processing choice', 'info', { choiceId, character: this.character.id });
+    let responseBuffer = '';
 
     const currentChoice = this.state.currentScene.choices.find(c => c.id === choiceId);
     if (!currentChoice) {
       const error = new Error(`Invalid choice ID: ${choiceId}`);
-      debugManager.log('Invalid choice', 'error', { choiceId, availableChoices: this.state.currentScene.choices });
       callbacks.onError(error);
       return;
     }
@@ -105,16 +105,10 @@ export class GameEngine {
     };
 
     this.state.history.push(historyEntry);
-    let newSceneDescription = '';
-    let newChoices: Choice[] = [];
 
     try {
       // Save the current state before generating the next scene
       await this.gameStateService.saveGameState(this.character, this.state);
-      debugManager.log('Saved current state', 'info', { state: this.state });
-      
-      // Generate the next scene
-      debugManager.log('Generating next scene', 'info', { choice: currentChoice });
       
       await this.openai.generateNextScene({
         context: {
@@ -126,38 +120,31 @@ export class GameEngine {
         choice: currentChoice.text,
       }, {
         onToken: (token) => {
-          if (callbacks.onToken) {
-            callbacks.onToken(token);
-          }
-        },
-        onResponse: (response) => {
-          newSceneDescription = response;
+          responseBuffer += token;
+          callbacks.onToken(token);
         },
         onComplete: async (choices) => {
-          newChoices = choices;
+          // Update the current scene with the generated text
           this.state.currentScene = {
             id: `scene-${this.state.history.length + 1}`,
-            description: newSceneDescription.trim(),
-            choices: newChoices,
+            description: responseBuffer,
+            choices: choices
           };
 
           // Save the updated state after scene generation
           await this.gameStateService.saveGameState(this.character, this.state);
-          debugManager.log('Scene generated successfully', 'success', { 
-            scene: this.state.currentScene,
-            choices: this.state.currentScene.choices
-          });
+          responseBuffer = '';
           callbacks.onComplete();
         },
         onError: (error) => {
           console.error('Error generating scene:', error);
-          debugManager.log('Error generating scene', 'error', { error });
+          responseBuffer = '';
           callbacks.onError(new Error('Failed to generate the next scene. Please try again.'));
         },
       });
     } catch (error) {
       console.error('Error in handleChoice:', error);
-      debugManager.log('Error in handleChoice', 'error', { error });
+      responseBuffer = '';
       callbacks.onError(new Error('Failed to process your choice. Please try again.'));
     }
   }

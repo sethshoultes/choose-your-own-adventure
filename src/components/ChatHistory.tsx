@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquare, User, Bot } from 'lucide-react';
+import { MessageSquare, User, Bot, X } from 'lucide-react';
 import type { GameHistoryEntry } from '../types';
 
 type Props = {
@@ -24,9 +24,7 @@ export function ChatHistory({ history, onClose, visible }: Props) {
             className="p-2 hover:bg-gray-100 rounded-full"
           >
             <span className="sr-only">Close</span>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <X className="w-5 h-5" />
           </button>
         </div>
         

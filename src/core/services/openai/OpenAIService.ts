@@ -8,7 +8,9 @@ import type {
   OpenAIStreamCallbacks, 
   StoryPrompt, 
   OpenAIResponse,
-  StreamError 
+  StreamError,
+  Choice,
+  StoryContext
 } from './types';
 
 export class OpenAIService {
@@ -16,12 +18,29 @@ export class OpenAIService {
   private requestTimes: number[] = [];
   private maxRetries = 3;
   private retryDelay = 1000;
-  private currentResponse = {
-    buffer: '',
-    parsed: null as OpenAIResponse | null,
-    choices: [] as Array<{ id: number; text: string; }>,
-    isComplete: false
-  };
+
+  private parseResponse(responseBuffer: string): OpenAIResponse | null {
+    try {
+      const parsed = JSON.parse(responseBuffer.trim());
+      if (parsed.description && Array.isArray(parsed.choices)) {
+        // Ensure exactly 3 unique choices
+        const uniqueChoices = Array.from(
+          new Map(parsed.choices.map(c => [c.text, c])).values()
+        ).slice(0, 3).map((choice, index) => ({
+          id: index + 1,
+          text: choice.text
+        }));
+
+        return {
+          description: parsed.description,
+          choices: uniqueChoices
+        };
+      }
+    } catch (e) {
+      debugManager.log('Failed to parse response', 'warning', { error: e });
+    }
+    return null;
+  }
 
   private cleanResponse(response: string): string {
     try {
@@ -99,46 +118,50 @@ export class OpenAIService {
   ): Promise<Choice[]> {
     debugManager.log('Generating dynamic choices', 'info', { scene, context });
 
-    const choicePrompt = `Based on the current scene and character attributes, generate 3 meaningful choices. Format as JSON array:
-    Scene: ${scene}
-    Character Attributes: ${context.character.attributes.map(a => `${a.name}: ${a.value}`).join(', ')}
-    Previous Choices: ${context.history.map(h => h.choice).join(', ')}
-    
-    Guidelines:
-    - Each choice should be distinct and meaningful
-    - Consider character attributes and equipment
-    - Avoid repetitive or similar choices
-    - Make choices that could lead to different outcomes
-    - Keep choices consistent with the genre and tone`;
-
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${await this.getApiKey()}`,
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        messages: [{
-          role: 'system',
-          content: choicePrompt
-        }],
-        temperature: 0.7,
-        max_tokens: 150,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to generate choices');
-    }
-
-    const data = await response.json();
     try {
+      const choicePrompt = `Based on the current scene and character attributes, generate 3 meaningful choices. Format as JSON array:
+      Scene: ${scene}
+      Character Attributes: ${context.character.attributes.map(a => `${a.name}: ${a.value}`).join(', ')}
+      Previous Choices: ${context.history.map(h => h.choice).join(', ')}
+      
+      Guidelines:
+      - Each choice should be distinct and meaningful
+      - Consider character attributes and equipment
+      - Avoid repetitive or similar choices
+      - Make choices that could lead to different outcomes
+      - Keep choices consistent with the genre and tone`;
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${await this.getApiKey()}`,
+        },
+        body: JSON.stringify({
+          model: this.config.model,
+          messages: [{
+            role: 'system',
+            content: choicePrompt
+          }],
+          temperature: 0.7,
+          max_tokens: 150,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new StreamError(
+          error.error?.message || 'Failed to generate choices',
+          response.status
+        );
+      }
+
+      const data = await response.json();
       const choices = JSON.parse(data.choices[0].message.content);
       debugManager.log('Generated choices', 'success', { choices });
       return choices.map((choice: any, index: number) => ({ id: index + 1, text: choice.text }));
-    } catch {
-      debugManager.log('Failed to parse choices, using fallback', 'warning');
+    } catch (error) {
+      debugManager.log('Failed to generate choices, using fallback', 'warning', { error });
       return [
         { id: 1, text: 'Investigate further' },
         { id: 2, text: 'Take action' },
@@ -244,72 +267,77 @@ export class OpenAIService {
     prompt: StoryPrompt,
     callbacks: OpenAIStreamCallbacks
   ): Promise<void> {
-    debugManager.log('Starting scene generation', 'info', { prompt });
-    
-    this.currentResponse = { 
-      buffer: '', 
-      parsed: null, 
-      choices: [],
-      isComplete: false 
-    };
-    let abortController: AbortController | null = null;
-    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    let buffer = '';
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_MS);
 
     try {
       this.checkRateLimit();
       const apiKey = await this.getApiKey();
 
-      const messages = [
-        {
-          role: 'system' as const,
-          content: generateSystemPrompt(prompt.context.genre),
-        },
-        {
-          role: 'user' as const,
-          content: generateUserPrompt(prompt),
-        },
-      ];
+      debugManager.log('Starting scene generation', 'info', { 
+        genre: prompt.context.genre,
+        choice: prompt.choice 
+      });
 
-      abortController = new AbortController();
-      const timeoutId = setTimeout(() => abortController?.abort(), TIMEOUT_MS);
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: this.config.model,
+          messages: [
+            {
+              role: 'system',
+              content: generateSystemPrompt(prompt.context.genre),
+            },
+            {
+              role: 'user',
+              content: generateUserPrompt(prompt),
+            },
+          ],
+          temperature: this.config.temperature,
+          max_tokens: this.config.maxTokens,
+          presence_penalty: this.config.presencePenalty,
+          frequency_penalty: this.config.frequencyPenalty,
+          stream: true,
+        }),
+        signal: abortController.signal,
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new StreamError(
+          error.error?.message || `OpenAI API error: ${response.statusText}`,
+          response.status
+        );
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response reader available');
+
+      const decoder = new TextDecoder();
 
       try {
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: this.config.model,
-            messages,
-            temperature: this.config.temperature,
-            max_tokens: this.config.maxTokens,
-            presence_penalty: this.config.presencePenalty,
-            frequency_penalty: this.config.frequencyPenalty,
-            stream: true,
-          }),
-          signal: abortController.signal,
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new StreamError(
-            error.error?.message || `OpenAI API error: ${response.statusText}`,
-            response.status
-          );
-        }
-
-        reader = response.body?.getReader() || null;
-        const decoder = new TextDecoder('utf-8');
-
-        if (!reader) {
-          throw new Error('No response reader available');
-        }
-
         while (true) {
           const { done, value } = await reader.read();
-          if (done) break;
+          if (done) {
+            // Final parse attempt
+            try {
+              const parsed = JSON.parse(buffer);
+              if (parsed.description && parsed.choices) {
+                callbacks.onComplete(parsed.choices.map((c: any, i: number) => ({
+                  id: i + 1,
+                  text: c.text
+                })));
+              }
+            } catch (e) {
+              debugManager.log('Final parse failed', 'warning', { error: e, buffer });
+            }
+            break;
+          }
 
           const chunk = decoder.decode(value);
           const lines = chunk.split('\n').filter(line => line.trim() !== '');
@@ -320,78 +348,26 @@ export class OpenAIService {
 
             try {
               const json = JSON.parse(line.replace('data: ', ''));
-              if (!json.choices[0].delta.content) continue;
+              if (!json.choices[0].delta?.content) continue;
+              
               const token = json.choices[0].delta.content;
-              this.currentResponse.buffer += token;
-
-              // Try to parse the accumulated response
-              try {
-                const parsed = JSON.parse(this.currentResponse.buffer.trim());
-                if (parsed.description) {
-                  this.currentResponse.parsed = parsed;
-                  this.currentResponse.choices = parsed.choices || [];
-                  this.currentResponse.isComplete = true;
-                  callbacks.onResponse(this.cleanResponse(parsed.description));
-                  debugManager.log('Parsed complete response', 'success', { 
-                    description: parsed.description,
-                    choices: parsed.choices 
-                  });
-                }
-              } catch {
-                // If not valid JSON yet, continue buffering
-                callbacks.onResponse(token);
-              }
+              buffer += token;
+              callbacks.onToken(token);
             } catch (e) {
-              console.error('Error parsing stream:', e);
+              debugManager.log('Error parsing stream chunk', 'error', { error: e });
             }
           }
         }
-
-        // Generate dynamic choices if none were parsed
-        let finalChoices = this.currentResponse.choices;
-        if (!this.currentResponse.isComplete || finalChoices.length === 0) {
-          debugManager.log('Generating fallback choices', 'warning');
-          finalChoices = [
-              { id: 1, text: 'Investigate further' },
-              { id: 2, text: 'Take action' },
-              { id: 3, text: 'Consider alternatives' }
-            ];
-        }
-
-        callbacks.onComplete(finalChoices);
-
-      } catch (error) {
-        throw error;
       } finally {
-        if (reader) {
-          reader.releaseLock();
-        }
+        reader.releaseLock();
       }
     } catch (error) {
       const streamError = this.handleStreamError(error);
       debugManager.log('Stream error occurred', 'error', { error });
       callbacks.onError(streamError);
     } finally {
-      if (abortController) {
-        abortController.abort();
-      }
-    }
-  }
-
-  private validateResponse(response: string): boolean {
-    try {
-      const parsed = JSON.parse(response);
-      return (
-        typeof parsed.description === 'string' &&
-        Array.isArray(parsed.choices) &&
-        parsed.choices.length === 3 &&
-        parsed.choices.every(c => 
-          typeof c.id === 'number' && 
-          typeof c.text === 'string'
-        )
-      );
-    } catch {
-      return false;
+      clearTimeout(timeoutId);
+      abortController.abort();
     }
   }
 }
