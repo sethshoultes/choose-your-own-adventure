@@ -1,14 +1,47 @@
+/**
+ * FormattedResponseView Component
+ * 
+ * This component provides a formatted display of OpenAI API responses in the AdventureBuildr admin interface.
+ * It handles both user messages and assistant responses, providing a chat-like interface with proper
+ * formatting, streaming indicators, and choice displays. The component works alongside RawResponseView
+ * to provide comprehensive response inspection capabilities.
+ * 
+ * Key Features:
+ * - Chat-style message display
+ * - Streaming response indicators
+ * - Choice option formatting
+ * - Error message handling
+ * - Auto-scrolling
+ * 
+ * Data Flow:
+ * 1. Message reception
+ * 2. Role-based formatting
+ * 3. Streaming state handling
+ * 4. Choice display
+ * 5. Error presentation
+ * 
+ * @see TestPanel for admin interface integration
+ * @see OpenAIService for response generation
+ */
+
 import React from 'react';
 import { Bot, AlertCircle } from 'lucide-react';
 
 interface FormattedResponseViewProps {
+  /** Array of chat messages to display */
   messages: Array<{
+    /** Message sender role */
     role: 'user' | 'assistant';
+    /** Message content */
     content: string;
+    /** Optional parsed content for display */
     parsedContent?: string;
+    /** Indicates if message is currently streaming */
     streaming?: boolean;
+    /** Available choices for the message */
     choices?: Array<{ id: number; text: string; }>;
   }>;
+  /** Optional error message */
   error: string | null;
 }
 
@@ -106,3 +139,145 @@ export function FormattedResponseView({ messages, error }: FormattedResponseView
     </div>
   );
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. TestPanel Component
+ *    ```typescript
+ *    // In TestPanel component
+ *    function TestPanel() {
+ *      const [messages, setMessages] = useState<Message[]>([]);
+ *      const [error, setError] = useState<string | null>(null);
+ *      
+ *      return (
+ *        <div className="grid grid-rows-2">
+ *          <RawResponseView content={rawContent} />
+ *          <FormattedResponseView 
+ *            messages={messages}
+ *            error={error}
+ *          />
+ *        </div>
+ *      );
+ *    }
+ *    ```
+ * 
+ * 2. OpenAI Testing
+ *    ```typescript
+ *    // In OpenAITester component
+ *    function OpenAITester() {
+ *      const handleMessage = (role: 'user' | 'assistant', content: string) => {
+ *        setMessages(prev => [...prev, { role, content }]);
+ *      };
+ *      
+ *      return (
+ *        <div>
+ *          <TestControls onMessage={handleMessage} />
+ *          <FormattedResponseView 
+ *            messages={messages}
+ *            error={error}
+ *          />
+ *        </div>
+ *      );
+ *    }
+ *    ```
+ * 
+ * 3. Streaming Responses
+ *    ```typescript
+ *    // In streaming handler
+ *    const handleStream = async () => {
+ *      setMessages(prev => [
+ *        ...prev,
+ *        { 
+ *          role: 'assistant',
+ *          content: '',
+ *          streaming: true
+ *        }
+ *      ]);
+ *      
+ *      try {
+ *        await streamResponse({
+ *          onToken: (token) => {
+ *            setMessages(prev => [
+ *              ...prev.slice(0, -1),
+ *              {
+ *                ...prev[prev.length - 1],
+ *                content: prev[prev.length - 1].content + token
+ *              }
+ *            ]);
+ *          }
+ *        });
+ *      } catch (error) {
+ *        setError(error.message);
+ *      }
+ *    };
+ *    ```
+ * 
+ * Usage Examples:
+ * ```typescript
+ * // Basic usage
+ * <FormattedResponseView
+ *   messages={[
+ *     { role: 'user', content: 'Hello' },
+ *     { role: 'assistant', content: 'Hi there!' }
+ *   ]}
+ *   error={null}
+ * />
+ * 
+ * // With streaming
+ * <FormattedResponseView
+ *   messages={[
+ *     {
+ *       role: 'assistant',
+ *       content: 'Typing...',
+ *       streaming: true
+ *     }
+ *   ]}
+ *   error={null}
+ * />
+ * 
+ * // With choices
+ * <FormattedResponseView
+ *   messages={[
+ *     {
+ *       role: 'assistant',
+ *       content: 'Choose your path:',
+ *       choices: [
+ *         { id: 1, text: 'Go left' },
+ *         { id: 2, text: 'Go right' }
+ *       ]
+ *     }
+ *   ]}
+ *   error={null}
+ * />
+ * ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * try {
+ *   await generateResponse();
+ * } catch (error) {
+ *   setMessages(prev => [
+ *     ...prev,
+ *     {
+ *       role: 'assistant',
+ *       content: 'Error: ' + error.message
+ *     }
+ *   ]);
+ * }
+ * ```
+ * 
+ * Best Practices:
+ * 1. Handle streaming states properly
+ * 2. Provide clear error feedback
+ * 3. Maintain scroll position
+ * 4. Format messages consistently
+ * 5. Support choice display
+ * 
+ * The component works alongside RawResponseView to provide comprehensive
+ * response inspection capabilities in the admin interface.
+ * 
+ * @see RawResponseView for unformatted display
+ * @see TestPanel for admin interface
+ * @see OpenAIService for response generation
+ */

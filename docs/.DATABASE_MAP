@@ -1,0 +1,58 @@
+# Database Schema
+| table_name      | column_name       | data_type                | is_nullable | character_maximum_length |
+| --------------- | ----------------- | ------------------------ | ----------- | ------------------------ |
+| achievements    | id                | uuid                     | NO          |                          |
+| achievements    | user_id           | uuid                     | NO          |                          |
+| achievements    | achievement_type  | text                     | NO          |                          |
+| achievements    | title             | text                     | NO          |                          |
+| achievements    | description       | text                     | NO          |                          |
+| achievements    | unlocked_at       | timestamp with time zone | YES         |                          |
+| api_credentials | id                | uuid                     | NO          |                          |
+| api_credentials | user_id           | uuid                     | NO          |                          |
+| api_credentials | openai_key        | text                     | NO          |                          |
+| api_credentials | created_at        | timestamp with time zone | YES         |                          |
+| api_credentials | updated_at        | timestamp with time zone | YES         |                          |
+| api_credentials | metadata          | jsonb                    | YES         |                          |
+| characters      | id                | uuid                     | NO          |                          |
+| characters      | user_id           | uuid                     | NO          |                          |
+| characters      | name              | text                     | NO          |                          |
+| characters      | genre             | text                     | NO          |                          |
+| characters      | attributes        | jsonb                    | NO          |                          |
+| characters      | equipment         | jsonb                    | NO          |                          |
+| characters      | backstory         | text                     | YES         |                          |
+| characters      | experience_points | integer                  | YES         |                          |
+| characters      | level             | integer                  | YES         |                          |
+| characters      | attribute_points  | integer                  | YES         |                          |
+| characters      | created_at        | timestamp with time zone | YES         |                          |
+| characters      | updated_at        | timestamp with time zone | YES         |                          |
+| game_sessions   | id                | uuid                     | NO          |                          |
+| game_sessions   | character_id      | uuid                     | NO          |                          |
+| game_sessions   | current_scene     | jsonb                    | NO          |                          |
+| game_sessions   | game_state        | jsonb                    | NO          |                          |
+| game_sessions   | created_at        | timestamp with time zone | YES         |                          |
+| game_sessions   | updated_at        | timestamp with time zone | YES         |                          |
+| game_sessions   | session_version   | text                     | YES         |                          |
+| game_sessions   | metadata          | jsonb                    | YES         |                          |
+| game_sessions   | checkpoint        | jsonb                    | YES         |                          |
+| game_sessions   | status            | USER-DEFINED             | NO          |                          |
+| game_sessions   | session_id        | uuid                     | YES         |                          |
+| profiles        | id                | uuid                     | NO          |                          |
+| profiles        | username          | text                     | NO          |                          |
+| profiles        | display_name      | text                     | YES         |                          |
+| profiles        | avatar_url        | text                     | YES         |                          |
+| profiles        | role              | text                     | YES         |                          |
+| profiles        | created_at        | timestamp with time zone | YES         |                          |
+| profiles        | updated_at        | timestamp with time zone | YES         |                          |
+
+# Database Policies
+| policy_name                          | table_name      | policy_condition                                                                                                     |
+| ------------------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Users can view own achievements      | achievements    | (user_id = auth.uid())                                                                                               |
+| Users can manage own API credentials | api_credentials | (user_id = auth.uid())                                                                                               |
+| Users can manage own characters      | characters      | (user_id = auth.uid())                                                                                               |
+| Users can view own characters        | characters      | (user_id = auth.uid())                                                                                               |
+| Users can manage own game sessions   | game_sessions   | (EXISTS ( SELECT 1
+   FROM characters c
+  WHERE ((c.id = game_sessions.character_id) AND (c.user_id = auth.uid())))) |
+| Users can update own profile         | profiles        | (id = auth.uid())                                                                                                    |
+| Users can view own profile           | profiles        | (id = auth.uid())                                                                                                    |

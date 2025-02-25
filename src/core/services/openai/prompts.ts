@@ -1,5 +1,42 @@
+/**
+ * OpenAI Prompts Module
+ * 
+ * This module provides prompt generation and management for OpenAI interactions in the AdventureBuildr
+ * game engine. It generates structured prompts for story generation, ensuring consistent narrative
+ * quality and proper context handling across different genres. The prompts integrate with the
+ * OpenAIService to guide the AI in generating appropriate story content.
+ * 
+ * Key Features:
+ * - Genre-specific prompt generation
+ * - Dynamic context integration
+ * - History management
+ * - Response formatting guidelines
+ * - Quality control parameters
+ * 
+ * Data Flow:
+ * 1. Genre selection
+ * 2. Context preparation
+ * 3. History integration
+ * 4. Prompt formatting
+ * 5. Response structure definition
+ * 
+ * @module openai/prompts
+ */
+
 import type { StoryPrompt } from './types';
 
+/**
+ * Generates the system prompt for story generation
+ * Configures AI behavior based on genre
+ * 
+ * @param genre Game genre for context
+ * @returns Formatted system prompt
+ * 
+ * @example
+ * ```typescript
+ * const systemPrompt = generateSystemPrompt('Fantasy');
+ * ```
+ */
 export function generateSystemPrompt(genre: string): string {
   const basePrompt = `You are a creative and engaging storyteller specializing in ${genre} narratives. 
 Your task is to continue the story based on the player's choices. Your response MUST be valid JSON in this exact format:
@@ -7,9 +44,9 @@ Your task is to continue the story based on the player's choices. Your response 
 {
   "description": "Scene description here...",
   "choices": [
-    { "id": 1, "text": "First choice" },
-    { "id": 2, "text": "Second choice" },
-    { "id": 3, "text": "Third choice" }
+    "First choice",
+    "Second choice", 
+    "Third choice"
   ]
 }
 
@@ -23,10 +60,12 @@ Guidelines:
 
 2. Choices:
    - ALWAYS provide exactly 3 choices
-   - Each choice must have an id (1, 2, or 3) and text
+   - Each choice should be a direct string
    - Make choices meaningful and distinct
    - Consider character attributes
    - Lead to different narrative paths
+   - Choices should be specific to the scene and story
+   - Avoid generic choices like "Investigate" or "Take action"
 
 3. Response Format:
    - MUST be valid JSON
@@ -34,6 +73,7 @@ Guidelines:
    - NO additional fields or formatting
    - NO markdown or special characters`;
 
+  // Add genre-specific guidelines
   switch (genre) {
     case 'Fantasy':
       return `${basePrompt}
@@ -76,6 +116,26 @@ Mystery-specific guidelines:
   }
 }
 
+/**
+ * Generates the user prompt for story continuation
+ * Integrates character context and history
+ * 
+ * @param prompt Story generation context
+ * @returns Formatted user prompt
+ * 
+ * @example
+ * ```typescript
+ * const userPrompt = generateUserPrompt({
+ *   context: {
+ *     genre: 'Fantasy',
+ *     character: currentCharacter,
+ *     currentScene: activeScene,
+ *     history: gameHistory
+ *   },
+ *   choice: selectedChoice
+ * });
+ * ```
+ */
 export function generateUserPrompt({ context, choice }: StoryPrompt): string {
   const { character, currentScene, history } = context;
 
@@ -103,6 +163,7 @@ Guidelines:
 - Maintain consistent tone and genre
 - Reference previous choices for continuity`;
 
+  // Add recent history for context
   if (history.length > 0) {
     prompt = `${prompt}\n\nStory History:\n${history
       .map(h => `- Scene: ${h.sceneDescription}\n  Choice: ${h.choice}`)
@@ -111,3 +172,150 @@ Guidelines:
 
   return prompt;
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. OpenAIService
+ *    ```typescript
+ *    // In OpenAIService
+ *    public async generateNextScene(prompt: StoryPrompt): Promise<void> {
+ *      await this.client.streamCompletion(
+ *        [
+ *          {
+ *            role: 'system',
+ *            content: generateSystemPrompt(prompt.context.genre)
+ *          },
+ *          {
+ *            role: 'user',
+ *            content: generateUserPrompt(prompt)
+ *          }
+ *        ],
+ *        this.config,
+ *        callbacks
+ *      );
+ *    }
+ *    ```
+ * 
+ * 2. GameEngine
+ *    ```typescript
+ *    // In GameEngine
+ *    private buildPrompt(): StoryPrompt {
+ *      return {
+ *        context: {
+ *          genre: this.character.genre,
+ *          character: this.character,
+ *          currentScene: this.state.currentScene,
+ *          history: this.state.history
+ *        },
+ *        choice: this.lastChoice
+ *      };
+ *    }
+ *    ```
+ * 
+ * 3. StoryService
+ *    ```typescript
+ *    // In StoryService
+ *    public async generateScene(context: StoryContext): Promise<Scene> {
+ *      const prompt = {
+ *        context,
+ *        choice: context.lastChoice
+ *      };
+ *      
+ *      return this.openai.generateNextScene(prompt, callbacks);
+ *    }
+ *    ```
+ * 
+ * Usage Examples:
+ * ```typescript
+ * // Basic prompt generation
+ * const systemPrompt = generateSystemPrompt('Fantasy');
+ * const userPrompt = generateUserPrompt({
+ *   context: gameContext,
+ *   choice: playerChoice
+ * });
+ * 
+ * // With history management
+ * const recentHistory = gameHistory.slice(-5);
+ * const prompt = generateUserPrompt({
+ *   context: {
+ *     ...gameContext,
+ *     history: recentHistory
+ *   },
+ *   choice: playerChoice
+ * });
+ * ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * try {
+ *   const prompt = generateUserPrompt(storyContext);
+ *   if (prompt.length > MAX_PROMPT_LENGTH) {
+ *     // Truncate history or context
+ *     const optimizedContext = optimizeContext(storyContext);
+ *     return generateUserPrompt(optimizedContext);
+ *   }
+ *   return prompt;
+ * } catch (error) {
+ *   console.error('Error generating prompt:', error);
+ *   return generateFallbackPrompt(storyContext);
+ * }
+ * ```
+ * 
+ * Best Practices:
+ * 1. Keep prompts focused and concise
+ * 2. Maintain consistent formatting
+ * 3. Include relevant context only
+ * 4. Consider token limits
+ * 5. Handle edge cases
+ * 
+ * Performance Optimization:
+ * ```typescript
+ * // Optimize context for token efficiency
+ * const optimizeContext = (context: StoryContext) => ({
+ *   ...context,
+ *   history: context.history.slice(-5),
+ *   currentScene: truncateIfNeeded(context.currentScene),
+ *   character: {
+ *     ...context.character,
+ *     backstory: summarizeBackstory(context.character.backstory)
+ *   }
+ * });
+ * 
+ * // Cache frequently used prompts
+ * const promptCache = new Map<string, string>();
+ * const getCachedPrompt = (genre: string) => {
+ *   if (!promptCache.has(genre)) {
+ *     promptCache.set(genre, generateSystemPrompt(genre));
+ *   }
+ *   return promptCache.get(genre)!;
+ * };
+ * ```
+ * 
+ * Quality Control:
+ * ```typescript
+ * // Validate prompt structure
+ * const validatePrompt = (prompt: string): boolean => {
+ *   const required = [
+ *     'Character Information',
+ *     'Current Scene',
+ *     'Player Choice'
+ *   ];
+ *   return required.every(section => prompt.includes(section));
+ * };
+ * 
+ * // Ensure proper formatting
+ * const formatPrompt = (prompt: string): string => {
+ *   return prompt
+ *     .replace(/\n{3,}/g, '\n\n')
+ *     .trim()
+ *     .split('\n')
+ *     .map(line => line.trim())
+ *     .join('\n');
+ * };
+ * ```
+ * 
+ * @see OpenAIService for service integration
+ * @see StoryService for story management
+ * @see GameEngine for game state context
+ */

@@ -1,18 +1,40 @@
+/**
+ * ApiKeySetup Component
+ * 
+ * This component handles the secure storage and management of OpenAI API keys for the AdventureBuildr application.
+ * It provides a user interface for entering and saving API keys, with proper validation and error handling.
+ * 
+ * Key Features:
+ * - Secure API key storage using Supabase's encrypted columns
+ * - Real-time validation of API key format
+ * - Clear user feedback for success/error states
+ * - Instructions for obtaining an API key
+ * 
+ * The component is used in the main application flow after authentication but before game access
+ * to ensure the OpenAI integration is properly configured.
+ */
+
 import React, { useState } from 'react';
 import { Key, Check, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { LoadingIndicator } from './LoadingIndicator';
 
-type Props = {
+interface Props {
+  /** Callback function called when API key setup is completed successfully */
   onComplete: () => void;
-};
+}
 
 export function ApiKeySetup({ onComplete }: Props) {
+  // State management for form handling
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  /**
+   * Handles the submission of the API key form
+   * Validates and stores the API key in the database
+   */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -20,14 +42,17 @@ export function ApiKeySetup({ onComplete }: Props) {
     setSuccess(null);
 
     try {
+      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('No authenticated user');
 
+      // Set up metadata for API key storage
       const metadata = {
         preferredModel: 'gpt-4-turbo-preview',
         lastUpdated: new Date().toISOString()
       };
 
+      // Store API key using secure RPC function
       const { data, error } = await supabase
         .rpc('upsert_api_credentials', { 
           p_user_id: user.id, 
@@ -39,6 +64,7 @@ export function ApiKeySetup({ onComplete }: Props) {
         throw error;
       }
 
+      // Show appropriate success message based on operation
       setSuccess(data?.status === 'created' ? 'API key saved successfully' : 'API key updated successfully');
       onComplete();
     } catch (err) {
@@ -53,6 +79,7 @@ export function ApiKeySetup({ onComplete }: Props) {
 
   return (
     <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
+      {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <div className="p-3 bg-indigo-100 rounded-lg">
           <Key className="w-6 h-6 text-indigo-600" />
@@ -63,6 +90,7 @@ export function ApiKeySetup({ onComplete }: Props) {
         </div>
       </div>
 
+      {/* Instructions */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
         <div className="text-sm text-blue-700">
           <p className="mb-2">To get your API key:</p>
@@ -74,6 +102,7 @@ export function ApiKeySetup({ onComplete }: Props) {
         </div>
       </div>
       
+      {/* API Key Form */}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -89,6 +118,7 @@ export function ApiKeySetup({ onComplete }: Props) {
           />
         </div>
 
+        {/* Error Message */}
         {error && (
           <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-lg">
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -96,6 +126,7 @@ export function ApiKeySetup({ onComplete }: Props) {
           </div>
         )}
 
+        {/* Success Message */}
         {success && (
           <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-lg">
             <Check className="w-5 h-5 flex-shrink-0" />
@@ -103,6 +134,7 @@ export function ApiKeySetup({ onComplete }: Props) {
           </div>
         )}
 
+        {/* Submit Button */}
         <button
           type="submit"
           disabled={loading || !apiKey.startsWith('sk-')}

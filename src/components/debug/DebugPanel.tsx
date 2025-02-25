@@ -1,12 +1,46 @@
+/**
+ * Debug Panel Component
+ * 
+ * This component provides a real-time debug interface for the AdventureBuildr game engine.
+ * It displays debug logs, system state, and provides debugging controls during development
+ * and testing. The panel integrates with the DebugManager to provide comprehensive
+ * visibility into the application's behavior.
+ * 
+ * Key Features:
+ * - Real-time log display
+ * - Log level filtering
+ * - Log clearing
+ * - Debug state visibility
+ * - Collapsible interface
+ * 
+ * Data Flow:
+ * 1. Debug state subscription
+ * 2. Log entry reception
+ * 3. Visual update
+ * 4. User interaction handling
+ * 5. State persistence
+ * 
+ * @see DebugManager for debug state management
+ * @see DebugToggle for visibility control
+ */
+
 import React from 'react';
 import { Bug, X, Trash2, AlertCircle, Info, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useDebugStore } from '../../core/debug/DebugManager';
 
 export function DebugPanel() {
+  /** Get debug state and actions from store */
   const { enabled, logs, clearLogs } = useDebugStore();
   
+  /** Early return if debug mode is disabled */
   if (!enabled) return null;
 
+  /**
+   * Gets the appropriate icon for log type
+   * 
+   * @param type Log entry type
+   * @returns Icon component for the log type
+   */
   const getIcon = (type: string) => {
     switch (type) {
       case 'error':
@@ -22,6 +56,7 @@ export function DebugPanel() {
 
   return (
     <div className="fixed bottom-24 right-4 w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+      {/* Panel Header */}
       <div className="p-3 border-b flex items-center justify-between bg-gray-50 rounded-t-lg">
         <div className="flex items-center gap-2">
           <Bug className="w-4 h-4 text-gray-600" />
@@ -47,6 +82,7 @@ export function DebugPanel() {
         </div>
       </div>
       
+      {/* Log Display */}
       <div className="h-64 overflow-y-auto p-3 space-y-2 text-sm">
         {logs.map((log, index) => (
           <div
@@ -78,3 +114,96 @@ export function DebugPanel() {
     </div>
   );
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. App Component
+ *    ```typescript
+ *    // In App.tsx
+ *    function App() {
+ *      return (
+ *        <div>
+ *          <DebugToggle />
+ *          <DebugPanel />
+ *          {/* Other components *\/}
+ *        </div>
+ *      );
+ *    }
+ *    ```
+ * 
+ * 2. Debug Manager
+ *    ```typescript
+ *    // In DebugManager.ts
+ *    debugManager.log('Operation started', 'info', {
+ *      details: 'Operation details',
+ *      timestamp: new Date().toISOString()
+ *    });
+ *    ```
+ * 
+ * 3. Game Engine
+ *    ```typescript
+ *    // In GameEngine.ts
+ *    try {
+ *      await this.processChoice(choice);
+ *      debugManager.log('Choice processed', 'success', { choice });
+ *    } catch (error) {
+ *      debugManager.log('Error processing choice', 'error', { error });
+ *    }
+ *    ```
+ * 
+ * Usage Examples:
+ * ```typescript
+ * // Basic debug panel
+ * function DevTools() {
+ *   return (
+ *     <>
+ *      <DebugToggle />
+ *      <DebugPanel />
+ *     </>
+ *   );
+ * }
+ * 
+ * // With custom positioning
+ * function CustomDebugPanel() {
+ *   return (
+ *     <div className="custom-position">
+ *       <DebugPanel />
+ *     </div>
+ *   );
+ * }
+ * ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * function SafeDebugPanel() {
+ *   try {
+ *     return <DebugPanel />;
+ *   } catch (error) {
+ *     console.error('Debug panel error:', error);
+ *     return null;
+ *   }
+ * }
+ * ```
+ * 
+ * Best Practices:
+ * 1. Keep logs focused and relevant
+ * 2. Use appropriate log levels
+ * 3. Include context in logs
+ * 4. Clean sensitive data
+ * 5. Limit log history
+ * 
+ * Performance Considerations:
+ * 1. Limit log entry count
+ * 2. Optimize re-renders
+ * 3. Clean up old logs
+ * 4. Handle large data sets
+ * 5. Manage memory usage
+ * 
+ * The panel works alongside the DebugToggle component to provide comprehensive
+ * debugging capabilities during development and testing.
+ * 
+ * @see DebugManager for state management
+ * @see DebugToggle for visibility control
+ * @see GameEngine for debug integration
+ */

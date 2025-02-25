@@ -5,9 +5,10 @@ type Props = {
   fullScreen?: boolean;
   message?: string;
   size?: 'sm' | 'md' | 'lg';
+  currentComponent?: string;
 };
 
-export function LoadingIndicator({ fullScreen = false, message, size = 'md' }: Props) {
+export function LoadingIndicator({ fullScreen = false, message, size = 'md', currentComponent }: Props) {
   const sizeClasses = {
     sm: 'h-4 w-4',
     md: 'h-8 w-8',

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Trophy, Star, Sparkles } from 'lucide-react';
-import type { LevelUpResult } from '../../core/services/progression/ProgressionService';
-import { LoadingIndicator } from '../LoadingIndicator';
+import type { LevelUpResult } from '../../core/services/progression/types';
 
 interface Props {
   result: LevelUpResult;

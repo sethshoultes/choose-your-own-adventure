@@ -1,9 +1,46 @@
+/**
+ * Scene Manager Module
+ * 
+ * This module manages scene generation and choice handling in the AdventureBuildr game engine.
+ * It provides genre-specific initial scenes and choices, ensuring a consistent and engaging
+ * start to each adventure. The manager works alongside the GameEngine to maintain narrative
+ * coherence and proper game state progression.
+ * 
+ * Key Features:
+ * - Genre-specific scene generation
+ * - Dynamic choice creation
+ * - Consistent story initialization
+ * - Rich narrative content
+ * - Genre-appropriate prompts
+ * 
+ * Data Flow:
+ * 1. Genre selection
+ * 2. Initial scene generation
+ * 3. Choice preparation
+ * 4. Scene delivery
+ * 5. State integration
+ * 
+ * @module sceneManager
+ */
+
 import type { Genre, Scene, Choice } from '../types';
 
+/**
+ * Generates the initial scene description based on the selected genre
+ * Each genre has a unique starting scenario that sets up the adventure's context
+ * 
+ * @param genre - The selected game genre
+ * @returns A detailed scene description string
+ * 
+ * @example
+ * ```typescript
+ * const initialScene = getInitialScene('Fantasy');
+ * ```
+ */
 export function getInitialScene(genre: Genre): string {
   switch (genre) {
     case 'Fantasy':
-      return `In the ancient kingdom of Eldara, you find yourself standing before the towering gates of the Crystal Palace. The air shimpers with magical energy, and whispers of an impending doom echo through the streets.
+      return `In the ancient kingdom of Eldara, you find yourself standing before the towering gates of the Crystal Palace. The air shimmers with magical energy, and whispers of an impending doom echo through the streets.
 
 The Royal Guard captain approaches you with urgency in his eyes. "Thank the gods you've arrived," he says. "We need your help. The Sacred Crystal has been stolen, and without it, our realm will fall into chaos."
 
@@ -31,6 +68,18 @@ The clock strikes midnight.`;
   }
 }
 
+/**
+ * Generates initial choices for the player based on the selected genre
+ * Each choice is designed to be meaningful and lead to different narrative paths
+ * 
+ * @param genre - The selected game genre
+ * @returns An array of Choice objects with IDs and descriptive text
+ * 
+ * @example
+ * ```typescript
+ * const choices = getInitialChoices('Fantasy');
+ * ```
+ */
 export function getInitialChoices(genre: Genre): Choice[] {
   switch (genre) {
     case 'Fantasy':
@@ -61,3 +110,169 @@ export function getInitialChoices(genre: Genre): Choice[] {
       return [];
   }
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. GameEngine
+ *    ```typescript
+ *    // In GameEngine
+ *    public async initializeGame(genre: Genre, character: Character): Promise<void> {
+ *      const initialScene = getInitialScene(genre);
+ *      const initialChoices = getInitialChoices(genre);
+ *      
+ *      this.state = {
+ *        currentScene: {
+ *          id: 'scene-1',
+ *          description: initialScene,
+ *          choices: initialChoices
+ *        },
+ *        history: [],
+ *        gameOver: false
+ *      };
+ *    }
+ *    ```
+ * 
+ * 2. CharacterCreation
+ *    ```typescript
+ *    // In CharacterCreation component
+ *    const handleSubmit = async () => {
+ *      const initialScene = getInitialScene(character.genre);
+ *      const initialChoices = getInitialChoices(character.genre);
+ *      
+ *      const gameState = {
+ *        currentScene: {
+ *          id: 'scene-1',
+ *          description: initialScene,
+ *          choices: initialChoices
+ *        },
+ *        history: [],
+ *        gameOver: false
+ *      };
+ *      
+ *      onComplete(character, gameState);
+ *    };
+ *    ```
+ * 
+ * 3. StoryService
+ *    ```typescript
+ *    // In StoryService
+ *    public async startNewStory(genre: Genre): Promise<Scene> {
+ *      return {
+ *        id: 'scene-1',
+ *        description: getInitialScene(genre),
+ *        choices: getInitialChoices(genre)
+ *      };
+ *    }
+ *    ```
+ * 
+ * Usage Examples:
+ * ```typescript
+ * // Basic scene initialization
+ * const genre: Genre = 'Fantasy';
+ * const scene = {
+ *   id: 'scene-1',
+ *   description: getInitialScene(genre),
+ *   choices: getInitialChoices(genre)
+ * };
+ * 
+ * // With error handling
+ * try {
+ *   const description = getInitialScene(genre);
+ *   const choices = getInitialChoices(genre);
+ *   
+ *   if (!description || choices.length === 0) {
+ *     throw new Error(`Invalid genre: ${genre}`);
+ *   }
+ *   
+ *   return { description, choices };
+ * } catch (error) {
+ *   console.error('Failed to generate initial scene:', error);
+ *   return getDefaultScene();
+ * }
+ * ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * const validateGenre = (genre: string): genre is Genre => {
+ *   return ['Fantasy', 'Sci-Fi', 'Horror', 'Mystery'].includes(genre);
+ * };
+ * 
+ * const getSceneContent = (genre: string) => {
+ *   if (!validateGenre(genre)) {
+ *     throw new Error(`Invalid genre: ${genre}`);
+ *   }
+ *   
+ *   const description = getInitialScene(genre);
+ *   const choices = getInitialChoices(genre);
+ *   
+ *   return { description, choices };
+ * };
+ * ```
+ * 
+ * Best Practices:
+ * 1. Keep scenes focused and engaging
+ * 2. Provide meaningful choices
+ * 3. Maintain genre consistency
+ * 4. Consider character context
+ * 5. Handle edge cases
+ * 
+ * Scene Guidelines:
+ * 1. Fantasy Scenes
+ *    - Include magical elements
+ *    - Reference medieval settings
+ *    - Add mystical atmosphere
+ *    - Balance action and intrigue
+ * 
+ * 2. Sci-Fi Scenes
+ *    - Focus on technology
+ *    - Include space elements
+ *    - Add scientific concepts
+ *    - Create futuristic atmosphere
+ * 
+ * 3. Horror Scenes
+ *    - Build tension gradually
+ *    - Add atmospheric details
+ *    - Include subtle threats
+ *    - Create unease
+ * 
+ * 4. Mystery Scenes
+ *    - Present clear stakes
+ *    - Include relevant clues
+ *    - Add multiple suspects
+ *    - Create intrigue
+ * 
+ * Choice Design:
+ * ```typescript
+ * const designChoices = (genre: Genre, context: any): Choice[] => {
+ *   const baseChoices = getInitialChoices(genre);
+ *   
+ *   return baseChoices.map(choice => ({
+ *     ...choice,
+ *     // Add character-specific modifiers
+ *     success_chance: calculateSuccessChance(choice, context),
+ *     // Add attribute requirements
+ *     requirements: getChoiceRequirements(choice, genre)
+ *   }));
+ * };
+ * 
+ * const validateChoices = (choices: Choice[]): boolean => {
+ *   if (choices.length !== 3) return false;
+ *   
+ *   const uniqueIds = new Set(choices.map(c => c.id));
+ *   if (uniqueIds.size !== choices.length) return false;
+ *   
+ *   return choices.every(choice => 
+ *     choice.text.length > 0 &&
+ *     !choice.text.includes('Investigate further')
+ *   );
+ * };
+ * ```
+ * 
+ * The manager works alongside the GameEngine to provide consistent story
+ * initialization and proper game state progression.
+ * 
+ * @see GameEngine for game state integration
+ * @see StoryService for story generation
+ * @see Genre for available genres
+ */

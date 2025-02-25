@@ -5,6 +5,7 @@ import { useNavigate } from '../hooks/useNavigate';
 
 type Props = {
   onSelect: (genre: Genre) => void;
+  currentComponent?: string;
 };
 
 const genres: { id: Genre; icon: React.ReactNode; title: string; description: string }[] = [
@@ -34,7 +35,7 @@ const genres: { id: Genre; icon: React.ReactNode; title: string; description: st
   },
 ];
 
-export function GenreSelector({ onSelect }: Props) {
+export function GenreSelector({ onSelect, currentComponent }: Props) {
   const { navigateToHome } = useNavigate();
 
   return (

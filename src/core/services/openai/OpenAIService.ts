@@ -1,589 +1,333 @@
-import { supabase } from '../../../lib/supabase';
-import { defaultConfig, RATE_LIMIT, TIMEOUT_MS } from './config';
-import { AVAILABLE_MODELS } from './models';
+/**
+ * OpenAIService Class
+ * 
+ * This service provides high-level OpenAI integration for the AdventureBuildr game engine.
+ * It manages content generation, streaming responses, and error handling while abstracting
+ * the complexities of API interaction. The service works alongside the auto-save system
+ * to ensure reliable story progression.
+ * 
+ * Key Features:
+ * - Dynamic scene generation
+ * - Streaming response handling
+ * - Rate limiting
+ * - Error recovery
+ * - State management
+ * 
+ * Data Flow:
+ * 1. Story prompt preparation
+ * 2. API request configuration
+ * 3. Response streaming and parsing
+ * 4. Scene generation and validation
+ * 5. State updates and persistence
+ * 
+ * @see OpenAIClient for low-level API interaction
+ * @see RateLimiter for request throttling
+ * @see GameEngine for integration
+ */
+
+import { defaultConfig } from './config';
+import { OpenAIClient } from './OpenAIClient';
+import { ResponseParser } from './ResponseParser';
+import { RateLimiter } from './RateLimiter';
 import { generateSystemPrompt, generateUserPrompt } from './prompts';
 import { debugManager } from '../../debug/DebugManager';
-import { 
-  OpenAIConfig, 
-  OpenAIStreamCallbacks, 
-  StoryPrompt, 
-  OpenAIResponse,
-  StreamError,
-  Choice,
-  StoryContext
+import type { 
+  OpenAIConfig,
+  OpenAIStreamCallbacks,
+  StoryPrompt
 } from './types';
 
 export class OpenAIService {
+  /** Service configuration */
   private config: OpenAIConfig;
-  private requestTimes: number[] = [];
+  /** API client instance */
+  private client: OpenAIClient;
+  /** Response parser instance */
+  private parser: ResponseParser;
+  /** Rate limiter instance */
+  private rateLimiter: RateLimiter;
+  /** Maximum retry attempts */
   private maxRetries = 3;
-  private retryDelay = 2000;
-  private maxTokens = 4096;  // Reduced from 8192 to stay well under the limit
 
-  private parseResponse(responseBuffer: string): OpenAIResponse | null {
-    try {
-      const parsed = JSON.parse(responseBuffer.trim());
-      if (parsed.description && Array.isArray(parsed.choices)) {
-        // Ensure exactly 3 unique choices
-        const uniqueChoices = Array.from(
-          new Map(parsed.choices.map(c => [c.text, c])).values()
-        ).slice(0, 3).map((choice, index) => ({
-          id: index + 1,
-          text: choice.text
-        }));
-
-        return {
-          description: parsed.description,
-          choices: uniqueChoices
-        };
-      }
-    } catch (e) {
-      debugManager.log('Failed to parse response', 'warning', { error: e });
-    }
-    return null;
-  }
-
-  private cleanResponse(response: string): string {
-    try {
-      // Try to parse complete JSON first
-      const parsed = JSON.parse(response.trim());
-      if (parsed.description) {
-        return parsed.description.trim();
-      }
-    } catch {
-      // If not valid JSON, clean up the response
-      const cleanedResponse = response
-        // Remove complete JSON objects
-        .replace(/^\s*{[\s\S]*}\s*$/gm, '')
-        // Remove requirements objects
-        .replace(/"requirements":\s*{[^}]*}/g, '')
-        // Remove choices arrays
-        .replace(/"choices":\s*\[[^\]]*\]/g, '')
-        // Remove JSON punctuation
-        .replace(/[{}\[\]"]/g, '')
-        // Remove field names
-        .replace(/^\s*(description|text|id):\s*/gm, '')
-        // Remove trailing commas
-        .replace(/,\s*$/gm, '')
-        // Split into lines
-        .split('\n')
-        // Remove empty lines and trim each line
-        .map(line => line.trim())
-        .filter(Boolean)
-        // Join with newlines
-        .join('\n')
-        .trim();
-
-      return cleanedResponse;
-    }
-    return response.trim();
-  }
-
-  private async delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  private async retryWithExponentialBackoff<T>(
-    operation: () => Promise<T>,
-    retries = this.maxRetries
-  ): Promise<T> {
-    let attempt = 1;
-
-    try {
-      return await operation();
-    } catch (error) {
-      if (retries === 0 || !this.shouldRetry(error)) {
-        throw error;
-      }
-      
-      const waitTime = this.calculateRetryDelay(error, attempt);
-      debugManager.log('Retrying request', 'info', { 
-        attempt,
-        waitTime,
-        error 
-      });
-      
-      await this.delay(waitTime);
-      attempt++;
-      return this.retryWithExponentialBackoff(operation, retries - 1);
-    }
-  }
-
-  private shouldRetry(error: any): boolean {
-    if (error instanceof StreamError) {
-      const retryableStatuses = [
-        429, // Rate limit
-        500, // Internal server error
-        502, // Bad gateway
-        503, // Service unavailable
-        504  // Gateway timeout
-      ];
-      
-      return retryableStatuses.includes(error.status);
-    }
-    return false;
-  }
-
-  private async generateDynamicChoices(
-    scene: string,
-    context: StoryContext
-  ): Promise<Choice[]> {
-    const { character, history } = context;
-    const relevantAttributes = character.attributes
-      .filter(attr => attr.value >= 7)
-      .map(attr => attr.name);
-    
-    const recentChoices = history
-      .slice(-3)
-      .map(h => h.choice);
-
-    debugManager.log('Generating dynamic choices', 'info', { scene, context });
-    let responseBuffer = '';
-
-    try {
-      const choicePrompt = `Generate 3 meaningful choices based on:
-
-Current Scene:
-${scene}
-
-Character Strengths:
-${relevantAttributes.join(', ')}
-
-Recent Choices:
-${recentChoices.join('\n')}
-
-Format response as JSON array:
-      [
-        { "id": 1, "text": "First choice" },
-        { "id": 2, "text": "Second choice" },
-        { "id": 3, "text": "Third choice" }
-      ]
-
-      Guidelines:
-      - Leverage character's high attributes (${relevantAttributes.join(', ')})
-      - Avoid repeating recent choices
-      - Each choice should lead to different outcomes
-      - Consider available equipment: ${character.equipment.map(e => e.name).join(', ')}
-      - Maintain genre consistency
-      - Choices should affect story progression`;
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${await this.getApiKey()}`,
-        },
-        body: JSON.stringify({
-          model: this.config.model,
-          messages: [{
-            role: 'system',
-            content: choicePrompt
-          }], 
-          temperature: 0.7,
-          max_tokens: 150,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new StreamError(
-          error.error?.message || 'Failed to generate choices',
-          response.status
-        );
-      }
-
-      const data = await response.json();
-      let choices = [];
-      try {
-        choices = JSON.parse(data.choices[0].message.content);
-      } catch (parseError) {
-        debugManager.log('Failed to parse choices', 'warning', { error: parseError });
-        return this.getFallbackChoices();
-      }
-
-      debugManager.log('Generated choices', 'success', { choices });
-      return choices.map((choice: any, index: number) => ({ id: index + 1, text: choice.text }));
-    } catch (error) {
-      debugManager.log('Failed to generate choices, using fallback', 'warning', { error });
-      return this.getFallbackChoices();
-    }
-  }
-
-  private getFallbackChoices(): Choice[] {
-    return [
-      { id: 1, text: 'Investigate further' },
-      { id: 2, text: 'Take action' },
-      { id: 3, text: 'Consider alternatives' }
-    ];
-  }
-
-  private handleStreamError(error: any): StreamError {
-    if (error instanceof StreamError) {
-      return error;
-    }
-    
-    // Handle network errors
-    if (error.message?.includes('Failed to fetch')) {
-      return new StreamError('Network error - please check your connection', 503);
-    }
-
-    // Handle API errors
-    if (error.status) {
-      const message = error.message || 'OpenAI API error';
-      return new StreamError(message, error.status);
-    }
-    
-    if (error.name === 'AbortError') {
-      return new StreamError('Request timed out', 408);
-    }
-    
-    return new StreamError(
-      error.message || 'An unknown error occurred',
-      500
-    );
-  }
-
-  public async testConnection(apiKey: string): Promise<{ valid: boolean; error?: string }> {
-    try {
-      const response = await fetch('https://api.openai.com/v1/models', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new StreamError(
-          error.error?.message || 'Failed to generate choices',
-          response.status
-        );
-      }
-
-      return { valid: true };
-    } catch (error) {
-      return {
-        valid: false,
-        error: error instanceof Error ? error.message : 'Failed to validate API key'
-      };
-    }
-  }
-
+  /**
+   * Creates a new OpenAI service instance
+   * 
+   * @param config Optional service configuration
+   */
   constructor(config: Partial<OpenAIConfig> = {}) {
     this.config = { ...defaultConfig, ...config };
+    this.client = new OpenAIClient();
+    this.parser = new ResponseParser();
+    this.rateLimiter = new RateLimiter();
   }
 
-  private async getApiKey(): Promise<string> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
-    
-    const { data, error } = await supabase
-      .from('api_credentials')
-      .select('openai_key, metadata')
-      .eq('user_id', user.id)
-      .single();
-
-    if (error) {
-      throw new Error('Error fetching API key: ' + error.message);
-    }
-    
-    if (!data?.openai_key) {
-      throw new Error('OpenAI API key not set. Please add your API key in Profile Settings.');
-    }
-
-    // Update config with user's preferred model if set
-    if (data.metadata?.preferredModel && AVAILABLE_MODELS[data.metadata.preferredModel]) {
-      const modelConfig = AVAILABLE_MODELS[data.metadata.preferredModel];
-      this.config = {
-        ...this.config,
-        model: modelConfig.id,
-        temperature: modelConfig.temperature,
-        maxTokens: modelConfig.maxTokens,
-        presencePenalty: modelConfig.presencePenalty,
-        frequencyPenalty: modelConfig.frequencyPenalty,
-      };
-    }
-
-    return data.openai_key;
-  }
-
-  private checkRateLimit() {
-    const now = Date.now();
-    this.requestTimes = this.requestTimes.filter(
-      time => now - time < RATE_LIMIT.windowMs
-    );
-
-    if (this.requestTimes.length >= RATE_LIMIT.maxRequests) {
-      throw new Error('Rate limit exceeded. Please try again later.');
-    }
-
-    this.requestTimes.push(now);
-  }
-
-  private calculateRetryDelay(error: any, attempt: number): number {
-    // For rate limits, use the retry-after header if available
-    if (error instanceof StreamError && error.status === 429) {
-      const retryAfter = parseInt(error.headers?.['retry-after'] || '0', 10);
-      if (retryAfter > 0) {
-        return retryAfter * 1000;
-      }
-    }
-    
-    // Otherwise use exponential backoff
-    return this.retryDelay * Math.pow(2, attempt - 1);
-  }
-
-  private truncateHistory(history: GameHistoryEntry[]): GameHistoryEntry[] {
-    // Keep only the last 5 entries to reduce context size
-    return history.slice(-5);
-  }
-
-  private estimateTokenCount(text: string): number {
-    // Rough estimation: ~4 chars per token
-    return Math.ceil(text.length / 4);
-  }
-
+  /**
+   * Generates the next scene based on the story prompt
+   * Handles streaming responses and error recovery
+   * 
+   * @param prompt Story generation prompt
+   * @param callbacks Streaming callbacks
+   * @throws Error if generation fails
+   * 
+   * @example
+   * ```typescript
+   * await openai.generateNextScene({
+   *   context: {
+   *     genre: 'Fantasy',
+   *     character: currentCharacter,
+   *     currentScene: activeScene,
+   *     history: gameHistory
+   *   },
+   *   choice: selectedChoice
+   * }, {
+   *   onToken: updateScene,
+   *   onComplete: finalizeScene,
+   *   onError: handleError
+   * });
+   * ```
+   */
   public async generateNextScene(
     prompt: StoryPrompt,
     callbacks: OpenAIStreamCallbacks
   ): Promise<void> {
     let buffer = '';
-    let completeResponse = '';
-    let responseComplete = false;
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), TIMEOUT_MS);
-    let validTokenCount = 0;
-    let tokenCount = 0;
-    let lastLogTime = Date.now();
-    const LOG_INTERVAL = 1000; // Log every second
-    let choices: Array<{ id: number; text: string }> = [
-      { id: 1, text: 'Investigate further' },
-      { id: 2, text: 'Take action' },
-      { id: 3, text: 'Consider alternatives' }
-    ];
 
     try {
-      this.checkRateLimit();
-      const apiKey = await this.getApiKey();
+      this.rateLimiter.checkRateLimit();
       
-      // Truncate history to reduce token usage
-      prompt.context.history = this.truncateHistory(prompt.context.history);
-      
-      // Estimate token count
-      const contextTokens = this.estimateTokenCount(
-        JSON.stringify(prompt.context) + prompt.choice
-      );
-      
-      // Adjust max tokens based on context size
-      const availableTokens = Math.max(
-        1000,
-        this.maxTokens - contextTokens
-      );
-      
-      debugManager.log('Starting scene generation', 'info', { 
-        genre: prompt.context.genre,
-        choice: prompt.choice,
-        contextTokens,
-        availableTokens
-      });
-
       // Validate the prompt
       if (!prompt.context || !prompt.choice) {
         throw new Error('Invalid prompt: Missing required fields');
       }
 
-      const response = await this.retryWithExponentialBackoff(async () => fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
+      // Truncate history to reduce token usage
+      prompt.context.history = prompt.context.history.slice(-5);
+
+      await this.client.streamCompletion(
+        [
+          {
+            role: 'system',
+            content: generateSystemPrompt(prompt.context.genre),
+          },
+          {
+            role: 'user',
+            content: generateUserPrompt(prompt),
+          },
+        ],
+        {
           model: this.config.model,
-          messages: [
-            {
-              role: 'system',
-              content: generateSystemPrompt(prompt.context.genre),
-            },
-            {
-              role: 'user',
-              content: generateUserPrompt(prompt),
-            },
-          ],
           temperature: this.config.temperature,
-          max_tokens: availableTokens,
-          presence_penalty: this.config.presencePenalty,
-          frequency_penalty: this.config.frequencyPenalty,
-          stream: true,
-          stream: true
-        }),
-        signal: abortController.signal
-      }));
-      
-      if (!response.ok) {
-        let errorMessage = 'OpenAI API error';
-        try {
-          const error = await response.json();
-          errorMessage = error.error?.message || error.message || `OpenAI API error: ${response.statusText}`;
-        } catch {
-          errorMessage = `OpenAI API error: ${response.statusText}`;
-        }
-        const streamError = new StreamError(errorMessage, response.status);
-        debugManager.log('API error response', 'error', { 
-          status: response.status,
-          message: errorMessage,
-          error: streamError
-        });
-        throw streamError;
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response reader available');
-
-      const decoder = new TextDecoder();
-      let validResponse = false;
-
-      debugManager.log('Starting stream read', 'info');
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            // Final parse attempt
-            try {
-              const parsed = JSON.parse(buffer);
-              if (parsed.description && parsed.choices) {
-                validResponse = true;
-                debugManager.log('Valid response parsed', 'success', { parsed });
-                callbacks.onComplete(parsed.choices.map((c: any, i: number) => ({
-                  // Ensure valid choice IDs
-                  id: i + 1,
-                  text: c.text
-                })));
-              } else {
-                debugManager.log('Invalid response format', 'warning', { parsed });
-                throw new Error('Invalid response format');
-              }
-            } catch (e) {
-              debugManager.log('Final parse failed', 'warning', { error: e, bufferLength: buffer.length });
-              // Only log empty response if buffer is actually empty
-              if (!buffer.trim()) {
-                debugManager.log('Empty response received', 'warning');
-              }
-            }
-            break;
-          }
-
-          if (responseComplete || !value) {
-            debugManager.log('Response already complete, ignoring additional data');
-            continue;
-          }
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n').filter(line => line.trim() !== '');
-
-          for (const line of lines) {
-            if (line.includes('[DONE]') || !line.startsWith('data: ')) {
-              continue;
-            }
-
-            // Skip empty data lines silently
-            if (line === 'data: ' || !line.trim()) continue;
+          maxTokens: this.config.maxTokens,
+          presencePenalty: this.config.presencePenalty,
+          frequencyPenalty: this.config.frequencyPenalty
+        },
+        {
+          onToken: (token) => {
+            buffer += token;
+            callbacks.onToken(token);
             
+            // Try to parse complete response
             try {
-              const json = JSON.parse(line.replace('data: ', ''));
-              if (!json.choices?.[0]?.delta?.content) {
-                continue;
-              }
-              
-              const token = json.choices[0].delta.content;
-              tokenCount++;
-              
-              // Always accumulate tokens
-              buffer += token;
-              completeResponse += token;
-              validTokenCount++;
-              callbacks.onToken(token);
-                
-              // Log progress periodically
-              const now = Date.now();
-              if (now - lastLogTime >= LOG_INTERVAL) {
-                debugManager.log('Generation progress', 'info', {
-                  tokens: tokenCount,
-                  validTokens: validTokenCount,
-                  bufferLength: buffer.length
-                });
-                lastLogTime = now;
-              }
-
-              // Try to parse complete response
-              try {
-                const parsed = JSON.parse(completeResponse);
-                if (parsed.description && parsed.choices) {
-                  // Validate choices
-                  if (!Array.isArray(parsed.choices) || parsed.choices.length === 0) {
-                    throw new Error('Invalid choices format');
-                  }
-                  
-                  responseComplete = true;
-                  debugManager.log('Complete response parsed', 'success');
-                  debugManager.log('Response stats', 'info', {
-                    totalTokens: tokenCount,
-                    bufferLength: buffer.length
-                  });
-                  
-                  // Ensure exactly 3 valid choices
-                  choices = parsed.choices.slice(0, 3).map((c: any, i: number) => ({
-                    id: i + 1,
-                    text: typeof c.text === 'string' ? c.text.trim() : 'Investigate further'
-                  }));
-                  
-                  // If we don't have enough choices, add defaults
-                  while (choices.length < 3) {
-                    choices.push({
-                      id: choices.length + 1,
-                      text: choices.length === 1 ? 'Take action' : 'Consider alternatives'
-                    });
-                  }
-                  
-                  callbacks.onComplete(parsed.choices.map((c, i) => ({ id: i + 1, text: c.text })));
+              const parsed = this.parser.parseResponse(buffer);
+              if (parsed) {
+                // Only complete if we have valid choices
+                if (parsed.choices.length > 0 && !parsed.choices[0].text.includes('Investigate further')) {
+                debugManager.log('Parsed response', 'success', { parsed });
+                callbacks.onComplete(parsed.choices);
+                return;
                 }
-              } catch {
-                // Not a complete response yet, continue
               }
-            } catch (e) {
-              // Only log actual parsing errors, not incomplete JSON
-              if (!(e instanceof SyntaxError)) {
-                debugManager.log('Error parsing stream chunk', 'error', { error: e });
-              }
+            } catch {
+              // Not a complete response yet, continue
             }
+          },
+          onError: (error) => {
+            debugManager.log('Stream error occurred', 'error', { error });
+            callbacks.onError(error);
           }
         }
+      );
 
-        if (!validResponse) {
-          debugManager.log('No valid response generated', 'error', {
-            totalTokens: tokenCount,
-            bufferLength: buffer.length
-          });
-          // Use the accumulated buffer as the response
-          if (buffer.trim()) {
-            callbacks.onToken(buffer);
-            callbacks.onComplete(choices);
+      // Final parse attempt if no complete response was found
+      if (buffer) {
+        try {
+          const parsed = this.parser.parseResponse(buffer);
+          if (parsed && parsed.choices.length > 0 && !parsed.choices[0].text.includes('Investigate further')) {
+            debugManager.log('Final parse successful', 'success', { parsed });
+            callbacks.onComplete(parsed.choices);
           } else {
-            throw new Error('Failed to generate valid response');
+            const cleaned = this.parser.cleanResponse(buffer);
+            callbacks.onToken(cleaned);
+            callbacks.onComplete([
+              { id: 1, text: 'Investigate further' },
+              { id: 2, text: 'Take action' },
+              { id: 3, text: 'Consider alternatives' }
+            ]);
           }
+        } catch (error) {
+          debugManager.log('Final parse failed', 'error', { error, buffer });
+          const cleaned = this.parser.cleanResponse(buffer);
+          callbacks.onToken(cleaned);
+          callbacks.onComplete([
+            { id: 1, text: 'Investigate further' },
+            { id: 2, text: 'Take action' },
+            { id: 3, text: 'Consider alternatives' }
+          ]);
         }
-      } finally {
-        reader.releaseLock();
       }
     } catch (error) {
-      const streamError = this.handleStreamError(error);
-      debugManager.log('Stream error occurred', 'error', { error });
-      
-      callbacks.onError(streamError);
-    } finally {
-      clearTimeout(timeoutId);
-      abortController.abort();
+      debugManager.log('Error in generateNextScene', 'error', { error });
+      callbacks.onError(error);
     }
   }
+
+  /**
+   * Tests API key validity and connection
+   * Used for validating user-provided keys
+   * 
+   * @param apiKey OpenAI API key to test
+   * @returns Validation result with error if any
+   * 
+   * @example
+   * ```typescript
+   * const result = await openai.testConnection('sk-...');
+   * if (result.valid) {
+   *   console.log('API key is valid');
+   * } else {
+   *   console.error('Invalid key:', result.error);
+   * }
+   * ```
+   */
+  public async testConnection(apiKey: string): Promise<{ valid: boolean; error?: string }> {
+    return this.client.testConnection(apiKey);
+  }
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. GameEngine
+ *    ```typescript
+ *    // In GameEngine
+ *    private async generateScene(): Promise<Scene> {
+ *      return new Promise((resolve, reject) => {
+ *        this.openai.generateNextScene(
+ *          this.buildPrompt(),
+ *          {
+ *            onToken: this.handleToken,
+ *            onComplete: (choices) => {
+ *              resolve(this.buildScene(choices));
+ *            },
+ *            onError: reject
+ *          }
+ *        );
+ *      });
+ *    }
+ *    ```
+ * 
+ * 2. StoryService
+ *    ```typescript
+ *    // In StoryService
+ *    public async generateScene(context: StoryContext): Promise<Scene> {
+ *      const scene = await this.openai.generateNextScene(
+ *        { context, choice: context.lastChoice },
+ *        this.streamCallbacks
+ *      );
+ *      return this.processScene(scene);
+ *    }
+ *    ```
+ * 
+ * 3. Admin Test Panel
+ *    ```typescript
+ *    // In TestPanel component
+ *    const handleGenerate = async () => {
+ *      await openai.generateNextScene(
+ *        buildTestPrompt(),
+ *        {
+ *          onToken: updateDisplay,
+ *          onComplete: showChoices,
+ *          onError: handleError
+ *        }
+ *      );
+ *    };
+ *    ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * try {
+ *   await openai.generateNextScene(prompt, {
+ *     onToken: handleToken,
+ *     onComplete: handleComplete,
+ *     onError: (error) => {
+ *       if (error.code === 'RATE_LIMIT') {
+ *         handleRateLimit();
+ *       } else if (error.code === 'TIMEOUT') {
+ *         handleTimeout();
+ *       } else {
+ *         handleGenericError(error);
+ *       }
+ *     }
+ *   });
+ * } catch (error) {
+ *   handleUnexpectedError(error);
+ * }
+ * ```
+ * 
+ * Best Practices:
+ * 1. Always handle streaming errors
+ * 2. Implement proper rate limiting
+ * 3. Validate prompts before sending
+ * 4. Clean up resources
+ * 5. Monitor API usage
+ * 
+ * Performance Optimization:
+ * ```typescript
+ * // Optimize token usage
+ * const optimizePrompt = (prompt: StoryPrompt) => {
+ *   return {
+ *     ...prompt,
+ *     context: {
+ *       ...prompt.context,
+ *       // Only keep recent history
+ *       history: prompt.context.history.slice(-5),
+ *       // Trim long descriptions
+ *       currentScene: truncateScene(prompt.context.currentScene)
+ *     }
+ *   };
+ * };
+ * 
+ * // Batch similar requests
+ * const batchRequests = async (prompts: StoryPrompt[]) => {
+ *   const results = [];
+ *   for (const prompt of prompts) {
+ *     await rateLimiter.waitForSlot();
+ *     results.push(generateNextScene(prompt));
+ *   }
+ *   return Promise.all(results);
+ * };
+ * ```
+ * 
+ * Cost Management:
+ * ```typescript
+ * // Track token usage
+ * let totalTokens = 0;
+ * 
+ * const trackUsage = (token: string) => {
+ *   totalTokens += token.split(/\s+/).length;
+ *   if (totalTokens > WARNING_THRESHOLD) {
+ *     notifyHighUsage();
+ *   }
+ * };
+ * 
+ * // Estimate costs
+ * const estimateCost = () => {
+ *   const tokensPerRequest = 1000;
+ *   const requestsPerDay = 100;
+ *   return calculateDailyCost(tokensPerRequest * requestsPerDay);
+ * };
+ * ```
+ * 
+ * @see OpenAIClient for API interaction
+ * @see RateLimiter for request throttling
+ * @see ResponseParser for content parsing
+ */

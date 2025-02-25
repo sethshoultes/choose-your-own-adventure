@@ -11,6 +11,10 @@
   animation: fadeOut 2s ease-out forwards;
 }
 
+.animate-fade-out {
+  animation: fadeOut 2s ease-out forwards;
+}
+
 @keyframes typing {
   0% { opacity: 0.3; }
   50% { opacity: 1; }

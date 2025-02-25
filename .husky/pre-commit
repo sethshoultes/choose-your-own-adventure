@@ -1,0 +1,60 @@
+#!/usr/bin/env sh
+# Pre-commit Hook for AdventureBuildr
+#
+# This script runs before each Git commit to ensure database type definitions are in sync.
+# It prevents commits when database types are outdated, maintaining type safety and
+# data consistency throughout the application.
+#
+# Key Features:
+# - Database type validation
+# - Commit blocking on type mismatch
+# - Clear error messaging
+# - Automatic type checking
+#
+# Data Flow:
+# 1. Git commit initiated
+# 2. Hook execution
+# 3. Type comparison
+# 4. Commit validation
+# 5. Error reporting
+#
+# Integration Points:
+# 1. Git Workflow
+#    - Runs automatically before each commit
+#    - Blocks commits on type mismatch
+#    - Provides clear remediation steps
+#
+# 2. NPM Scripts
+#    - Uses 'db:check' script from package.json
+#    - Compares with 'db:types' output
+#    - Validates type definitions
+#
+# 3. Supabase Integration
+#    - Checks generated types against schema
+#    - Ensures type safety with database
+#    - Maintains schema consistency
+#
+# Usage:
+# The hook runs automatically on 'git commit'. If database types are out of sync:
+# 1. Commit will be blocked
+# 2. Error message will display
+# 3. User must run 'npm run db:types' to update
+#
+# Example Error:
+# ```
+# Database types are out of sync. Please run npm run db:types to update them.
+# ```
+#
+# Best Practices:
+# 1. Always run db:types after schema changes
+# 2. Commit updated types with schema changes
+# 3. Review type changes before updating
+# 4. Keep types in version control
+# 5. Document type updates
+
+# Load Husky environment
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run database type check
+# Exits with error if types are out of sync
+npm run db:check || (echo 'Database types are out of sync. Please run npm run db:types to update them.' && exit 1)

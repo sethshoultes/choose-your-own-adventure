@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "db:types": "supabase gen types typescript --project-id vycdzwibdfmuktxshgyi > src/lib/database.types.ts",
+    "db:check": "supabase gen types typescript --project-id vycdzwibdfmuktxshgyi | diff - src/lib/database.types.ts",
+    "prepare": "husky install",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -27,9 +30,15 @@
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
+    "husky": "^9.0.11",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.5.3",
+    "typescript": "^5.5.3", 
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm run db:check || (echo 'Database types are out of sync. Please run npm run db:types to update them.' && exit 1)"
+    }
   }
 }

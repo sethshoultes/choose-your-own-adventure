@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Menu as MenuIcon, X, Home, User, Users, Settings, Bug, Zap, Trophy } from 'lucide-react';
+import { Menu as MenuIcon, X, Home, User, Users, Settings, Bug, Zap, Trophy, Terminal } from 'lucide-react';
 import { LogoutButton } from './LogoutButton';
 import { supabase } from '../lib/supabase';
 import { DebugPanel } from './debug/DebugPanel';
+import { useAdminStatus } from '../hooks/useAdminStatus';
 import { useDebugStore } from '../core/debug/DebugManager';
 
 type Props = {
@@ -12,30 +13,8 @@ type Props = {
 
 export function Menu({ username, onNavigate }: Props) {
   const [isOpen, setIsOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
   const { enabled: debugEnabled, toggleDebug } = useDebugStore();
-
-  React.useEffect(() => {
-    checkAdminStatus();
-  }, []);
-
-  const checkAdminStatus = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-      setIsAdmin(data?.role === 'admin');
-    } catch (error) {
-      console.error('Error checking admin status:', error);
-      setIsAdmin(false);
-    }
-  };
+  const { isAdmin, loading } = useAdminStatus();
 
   const handleNavigation = (page: 'home' | 'characters' | 'profile') => {
     if (onNavigate) {
@@ -47,6 +26,7 @@ export function Menu({ username, onNavigate }: Props) {
   return (
     <div className="relative">
       {debugEnabled && <DebugPanel />}
+
       <div className="fixed top-4 right-4 z-50">
         <div className="bg-white rounded-lg shadow-lg p-2 flex items-center">
         <button
@@ -124,7 +104,7 @@ export function Menu({ username, onNavigate }: Props) {
                   },
                   {
                     label: 'Debug Console',
-                    icon: <Bug className="w-5 h-5" />,
+                    icon: <Terminal className="w-5 h-5" />,
                     onClick: toggleDebug,
                     active: debugEnabled,
                     badge: debugEnabled ? 'Active' : undefined
@@ -150,6 +130,26 @@ export function Menu({ username, onNavigate }: Props) {
               ))}
             </ul>
           </nav>
+          
+          {/* Debug status indicator */}
+          {isAdmin && (
+            <div className="px-4 py-2 border-t">
+              <button
+                onClick={toggleDebug}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                  debugEnabled ? 'bg-indigo-50 text-indigo-600' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Bug className="w-4 h-4" />
+                <span className="text-sm">Debug Mode</span>
+                <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
+                  debugEnabled ? 'bg-indigo-100' : 'bg-gray-100'
+                }`}>
+                  {debugEnabled ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
+          )}
 
           {/* Footer actions */}
           <div className="p-4 border-t">

@@ -1,3 +1,29 @@
+/**
+ * AchievementList Component
+ * 
+ * This component displays a user's unlocked achievements and progress in the AdventureBuildr game.
+ * It provides a visual representation of accomplishments, progress tracking, and reward information.
+ * The component integrates with the achievement system to provide real-time updates and progress
+ * tracking for various game accomplishments.
+ * 
+ * Key Features:
+ * - Achievement display and tracking
+ * - Progress visualization
+ * - XP reward information
+ * - Unlock date display
+ * - Progress indicators
+ * 
+ * Data Flow:
+ * 1. Achievement data loading
+ * 2. Progress calculation
+ * 3. Visual state updates
+ * 4. Progress tracking
+ * 5. UI rendering
+ * 
+ * @see AchievementService for achievement management
+ * @see ProgressionService for XP integration
+ */
+
 import React, { useState, useEffect } from 'react';
 import { Trophy, Lock, Check, Star } from 'lucide-react';
 import { AchievementService } from '../../core/services/achievements/AchievementService';
@@ -82,6 +108,7 @@ export function AchievementList() {
         return '';
     }
   };
+
   if (loading) {
     return <LoadingIndicator message="Loading achievements..." />;
   }
@@ -165,3 +192,113 @@ export function AchievementList() {
     </div>
   );
 }
+
+/**
+ * Integration Points:
+ * 
+ * 1. AchievementsPage Component
+ *    ```typescript
+ *    // In AchievementsPage component
+ *    function AchievementsPage() {
+ *      return (
+ *        <div className="max-w-4xl mx-auto p-6">
+ *          <h1>Achievements</h1>
+ *          <AchievementList />
+ *        </div>
+ *      );
+ *    }
+ *    ```
+ * 
+ * 2. Achievement Service
+ *    ```typescript
+ *    // In AchievementService
+ *    public async checkAchievements(character: Character): Promise<void> {
+ *      const progress = await this.getProgress(character);
+ *      const unlockedAchievements = await this.getUnlockedAchievements(
+ *        character.user_id
+ *      );
+ *      
+ *      // Check achievement requirements...
+ *    }
+ *    ```
+ * 
+ * 3. Game Engine
+ *    ```typescript
+ *    // In GameEngine
+ *    private async handleAchievement(achievement: Achievement): Promise<void> {
+ *      // Update UI
+ *      showAchievementNotification(achievement);
+ *      
+ *      // Refresh achievement list
+ *      await loadAchievements();
+ *    }
+ *    ```
+ * 
+ * Database Schema:
+ * ```sql
+ * -- Achievements table
+ * CREATE TABLE achievements (
+ *   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ *   user_id uuid REFERENCES auth.users(id),
+ *   achievement_type text NOT NULL,
+ *   title text NOT NULL,
+ *   description text NOT NULL,
+ *   unlocked_at timestamptz DEFAULT now()
+ * );
+ * 
+ * -- Achievement progress tracking
+ * CREATE TABLE achievement_progress (
+ *   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ *   user_id uuid REFERENCES auth.users(id),
+ *   achievement_type text NOT NULL,
+ *   progress jsonb NOT NULL,
+ *   updated_at timestamptz DEFAULT now()
+ * );
+ * ```
+ * 
+ * Usage Examples:
+ * ```typescript
+ * // Basic achievement list
+ * <AchievementList />
+ * 
+ * // With custom loading state
+ * function CustomAchievements() {
+ *   const [loading, setLoading] = useState(true);
+ *   
+ *   return (
+ *     <div>
+ *       <h1>My Achievements</h1>
+ *       {loading ? (
+ *         <LoadingIndicator />
+ *       ) : (
+ *         <AchievementList />
+ *       )}
+ *     </div>
+ *   );
+ * }
+ * ```
+ * 
+ * Error Handling:
+ * ```typescript
+ * try {
+ *   await loadAchievements();
+ * } catch (error) {
+ *   setError('Failed to load achievements');
+ *   console.error('Achievement error:', error);
+ * }
+ * ```
+ * 
+ * Best Practices:
+ * 1. Always handle loading states
+ * 2. Provide clear progress feedback
+ * 3. Show unlock dates
+ * 4. Display XP rewards
+ * 5. Handle errors gracefully
+ * 
+ * The component works alongside the achievement system to provide visual
+ * feedback and progress tracking for game accomplishments.
+ * 
+ * @see AchievementService for achievement management
+ * @see ProgressionService for XP rewards
+ * @see AchievementsPage for page integration
+ */
